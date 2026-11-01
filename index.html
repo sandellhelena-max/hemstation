@@ -76,6 +76,7 @@
   .dagar { margin-top: 10px; -webkit-box-align: start; -webkit-align-items: flex-start; align-items: flex-start; }
   .dg { font-size: 18px; line-height: 1.35; white-space: nowrap; overflow: hidden; }
   .dg .muted { font-size: 14px; }
+  .sol { color: #c9d1d9; }
   .vfot { font-size: 16px; line-height: 1.4; }
   .chip { display: inline-block; background: #0d1117; border-radius: 14px; padding: 3px 10px 3px 8px;
     margin: 6px 6px 0 0; font-size: 15px; white-space: nowrap; }
@@ -294,6 +295,32 @@
     return new Date(Date.UTC(+p[1], +p[2] - 1, +p[3], +p[4], +p[5]));
   }
 
+  // Soluppgång och solnedgång (samma förenklade formel som Väderstationen, ~1 min noggrannhet)
+  var RAD = Math.PI / 180;
+  function solHojd(t) {
+    var d = t.getTime() / 86400000 - 10957.5;   // dagar sedan J2000
+    var g = (357.529 + 0.98560028 * d) * RAD, q = 280.459 + 0.98564736 * d;
+    var L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * RAD;
+    var e = (23.439 - 0.00000036 * d) * RAD;
+    var ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+    var gmst = (18.697374558 + 24.06570982441908 * d) % 24;
+    var ha = (gmst * 15 + PLATS.lon) * RAD - ra, phi = PLATS.lat * RAD;
+    return Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(ha)) / RAD;
+  }
+  function solTider(dag) {
+    var t0 = new Date(dag.getFullYear(), dag.getMonth(), dag.getDate()).getTime(), steg = 10 * 60000;
+    var upp = null, ned = null, forra = solHojd(new Date(t0));
+    for (var t = t0 + steg; t <= t0 + 86400000; t += steg) {
+      var h = solHojd(new Date(t));
+      if ((forra < -0.833) !== (h < -0.833)) {
+        var tid = new Date(t - steg + steg * (-0.833 - forra) / (h - forra));
+        if (h > forra) upp = tid; else ned = tid;
+      }
+      forra = h;
+    }
+    return { upp: upp, ned: ned };
+  }
+
   var vader = { series: null, fel: false, uppdaterad: null, pollen: null, varning: null };
 
   function laddaVader() {
@@ -375,7 +402,9 @@
       h += '</div>';
     }
     h += '</div>';
-    ruta('w-vader', 'Väder · <b>' + esc(PLATS.namn) + '</b>', 'SMHI ' + hm(vader.uppdaterad), h);
+    var sol = solTider(now);
+    ruta('w-vader', 'Väder · <b>' + esc(PLATS.namn) + '</b>', (sol.upp && sol.ned ? '<span class="sol">🌅 ' + hm(sol.upp) +
+      ' &nbsp;🌇 ' + hm(sol.ned) + ' · </span>' : '') + 'SMHI ' + hm(vader.uppdaterad), h);
     ritaNatt();
   }
 
