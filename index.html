@@ -127,6 +127,16 @@
   .kd .dot { margin-right: 10px; }
   .ute { color: #6e7681; }
 
+  /* Nattläge: svart skärm med klocka och morgondagens väder */
+  #natt { display: none; position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10;
+    background: #000; color: #8b949e; text-align: center; cursor: pointer; }
+  #natt .nk { font-size: 150px; font-weight: 100; line-height: 1; letter-spacing: -3px; color: #9da5ae; margin-top: 22vh; }
+  #natt .nd { font-size: 26px; margin-top: 10px; color: #6e7681; }
+  #natt .nv { font-size: 26px; margin-top: 7vh; color: #8b949e; line-height: 1.6; }
+  #natt .nv b { font-weight: 500; color: #9da5ae; }
+  #natt .nv .rain { color: #58a6ff; }
+  #natt .nh { position: absolute; left: 0; right: 0; bottom: 26px; font-size: 15px; color: #30363d; }
+
   /* Stående iPad: smalare rutor */
   @media (orientation: portrait) {
     .now-icon { font-size: 44px; width: 54px; }
@@ -152,6 +162,8 @@
     <div class="w grow col" data-app="mat" id="w-mat"><h2>Matsedel</h2><div class="tom">Hämtar…</div></div>
   </div>
 </div>
+<div id="natt"><div class="nk" id="n-klocka"></div><div class="nd" id="n-datum"></div>
+  <div class="nv" id="n-vader"></div><div class="nh">Tryck för att visa allt</div></div>
 
 <script>
 (function () {
@@ -165,6 +177,7 @@
     mat:   'matsedel/index.html'
   };
   var PLATS = { lat: 57.71, lon: 11.97, namn: 'Göteborg' };   // samma som Väderstationen
+  var NATT = { fran: 22, till: 6 };   // nattläge mellan dessa klockslag
   var MAC = 'http://MacBook-Pro-som-tillhor-Helena.local:8817';
   var TAVLOR = [
     { namn: 'Nordviksgatan', typ: 'Buss',     gid: '9021014005012000', trafikslag: 'bus' },
@@ -213,6 +226,48 @@
     var d = new Date();
     $('clock').innerHTML = hm(d);
     $('date').innerHTML = cap(DAGAR[d.getDay()]) + ' ' + d.getDate() + ' ' + MANADER[d.getMonth()];
+    ritaNatt();
+  }
+
+  // ---- Nattläge ----
+  // Mellan NATT.fran och NATT.till visas bara klockan och vädret för dagen som kommer.
+  // Ett tryck visar startsidan i 3 minuter (förlängs av varje nytt tryck).
+  var vakenTill = 0;
+  function nattTid() {
+    var h = new Date().getHours();
+    return NATT.fran > NATT.till ? (h >= NATT.fran || h < NATT.till) : (h >= NATT.fran && h < NATT.till);
+  }
+  function arNatt() { return nattTid() && new Date().getTime() > vakenTill; }
+  function nattVader() {
+    var s = vader.series;
+    if (!s) return '';
+    var nu = new Date(), dag = new Date(nu.getTime());
+    if (nu.getHours() >= 12) dag.setDate(dag.getDate() + 1);
+    var key = dayKey(dag), min = 99, max = -99, regn = 0, symb = 0, dist = 99, morgon = null;
+    for (var i = 0; i < s.length; i++) {
+      var h = s[i].t.getHours();
+      if (dayKey(s[i].t) !== key || h < 6 || h > 22) continue;
+      var x = s[i].d;
+      if (x.air_temperature < min) min = x.air_temperature;
+      if (x.air_temperature > max) max = x.air_temperature;
+      regn += x.precipitation_amount_mean || 0;
+      if (Math.abs(h - 13) < dist) { dist = Math.abs(h - 13); symb = x.symbol_code; }
+      if (h === 7) morgon = x;
+    }
+    if (max === -99) return '';
+    var ss = sym(symb, 13);
+    return '<b>' + (key === dayKey(nu) ? 'Idag' : 'I morgon') + '</b> ' + ss[0] + ' ' + ss[1].toLowerCase() + ', ' +
+      deg(min) + ' – ' + deg(max) + (regn >= 0.5 ? ', <span class="rain">' + Math.round(regn) + ' mm regn</span>' : '') +
+      (morgon ? '<br><span>Kl 7: ' + deg(morgon.air_temperature) + ', vind ' + Math.round(morgon.wind_speed) + ' m/s</span>' : '');
+  }
+  function ritaNatt() {
+    var natt = arNatt();
+    $('natt').style.display = natt ? 'block' : 'none';
+    if (!natt) return;
+    var d = new Date();
+    $('n-klocka').innerHTML = hm(d);
+    $('n-datum').innerHTML = cap(DAGAR[d.getDay()]) + ' ' + d.getDate() + ' ' + MANADER[d.getMonth()];
+    $('n-vader').innerHTML = nattVader();
   }
 
   // ================= Väder (SMHI) =================
@@ -321,6 +376,7 @@
     }
     h += '</div>';
     ruta('w-vader', 'Väder · <b>' + esc(PLATS.namn) + '</b>', 'SMHI ' + hm(vader.uppdaterad), h);
+    ritaNatt();
   }
 
   // Varningar som gäller platsen (samma källa som Väderstationen)
@@ -439,6 +495,7 @@
       function (status) { token = null; klar(1, status === 400 || status === 401 ? 'nyckel' : 'natet'); });
   }
   function laddaBuss() {
+    if (arNatt()) return;   // ingen idé att fråga Västtrafik när skärmen sover
     if (!nyckel()) { buss.fel = 'ingen'; return ritaBuss(); }
     var kvar = TAVLOR.length, fel = null;
     function klar() {
@@ -628,6 +685,11 @@
     return null;
   }
   document.addEventListener('click', function (e) {
+    if (nattTid()) {
+      var sov = arNatt();
+      vakenTill = new Date().getTime() + 3 * 60000;
+      if (sov) { tickClock(); if (buss.senast) ritaBuss(); laddaBuss(); return; }
+    }
     var mac = narmast(e.target, 'data-mac');
     if (mac) { macKommando(mac.getAttribute('data-mac')); return; }
     var w = narmast(e.target, 'data-app');
