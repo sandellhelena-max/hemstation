@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Matsedel">
+<title>Matsedel</title>
+<!--
+  Veckomatsedel för gammal iPad mini (iOS 12). Skriven i ES5 utan moderna JS-funktioner.
+  Varje vecka får sju middagar: kyckling, fisk, kött och vegetariskt (tre av dem två gånger,
+  den fjärde en gång – vilken som får en gång roterar varje vecka). Alla rätter tar högst
+  40 minuter och är beräknade för 4 personer.
+  Matsedeln och inköpslistan sparas bara på iPaden (localStorage), en per vecka.
+  Recepten ändras i listan RECEPT, butiksavdelningar i VAROR längre ner.
+  Egna recept (t.ex. avfotograferade) ligger i egna-recept.js med bilder i mappen bilder/.
+  Behöver ingen internetuppkoppling när sidan väl är laddad.
+-->
+<style>
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+  [data-a] { cursor: pointer; }
+  .wrap { box-sizing: border-box; max-width: 1000px; margin: 0 auto; padding: 22px 26px 40px; }
+  .row { display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+  .top { -webkit-box-align: start; -webkit-align-items: flex-start; align-items: flex-start; }
+  .grow { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-width: 0; }
+  .muted { color: #8b949e; }
+
+  .head h1 { margin: 0; font-size: 34px; font-weight: 300; letter-spacing: -0.5px; }
+  .head .sub { font-size: 17px; color: #8b949e; margin-top: 2px; }
+  .nav { width: 48px; height: 48px; line-height: 46px; text-align: center; font-size: 28px;
+    border-radius: 24px; background: #161b22; color: #e6edf3; margin-left: 10px; }
+  .today { font-size: 15px; padding: 0 14px; height: 48px; line-height: 48px; border-radius: 24px;
+    background: #161b22; margin-left: 10px; }
+
+  .tabs { margin: 20px 0 16px; background: #161b22; border-radius: 12px; padding: 4px; }
+  .tab { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; text-align: center; font-size: 18px;
+    padding: 11px 0; border-radius: 9px; color: #8b949e; }
+  .tab.on { background: #30363d; color: #e6edf3; font-weight: 500; }
+
+  .card { background: #161b22; border-radius: 14px; }
+  .day { padding: 14px 16px; margin-bottom: 10px; border-left: 6px solid #30363d; }
+  .day.idag { box-shadow: 0 0 0 2px #388bfd inset; }
+  .dname { width: 104px; }
+  .dname b { display: block; font-size: 19px; font-weight: 600; }
+  .dname span { font-size: 14px; color: #8b949e; }
+  .dish { font-size: 21px; line-height: 1.25; }
+  .meta { font-size: 14px; color: #8b949e; margin-top: 3px; }
+  .chip { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.8px;
+    text-transform: uppercase; padding: 2px 8px; border-radius: 10px; margin-right: 8px; color: #0d1117; }
+  .btn { display: inline-block; font-size: 16px; padding: 10px 14px; border-radius: 10px;
+    background: #21262d; color: #e6edf3; margin-left: 8px; white-space: nowrap; }
+  .btn.av { opacity: 0.4; }
+  .btn.gron { background: #238636; color: #fff; }
+  .day.ute { opacity: 0.5; }
+
+  .k-kyckling { border-left-color: #d29922; } .c-kyckling { background: #d29922; }
+  .k-fisk { border-left-color: #58a6ff; }     .c-fisk { background: #58a6ff; }
+  .k-kott { border-left-color: #f85149; }     .c-kott { background: #f85149; }
+  .k-vego { border-left-color: #3fb950; }     .c-vego { background: #3fb950; }
+
+  .tools { margin-top: 14px; }
+  .tools .btn:first-child { margin-left: 0; }
+  .hint { font-size: 14px; color: #8b949e; margin-top: 12px; line-height: 1.5; }
+
+  .rec h2 { font-size: 28px; font-weight: 400; margin: 6px 0 6px; }
+  .vanster { width: 340px; margin-right: 18px; }
+  .foto { position: relative; height: 250px; margin-bottom: 14px; border-radius: 14px; overflow: hidden; background: #161b22; }
+  .foto img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .foto .kalla { position: absolute; right: 0; bottom: 0; font-size: 11px; color: #c9d1d9;
+    background: rgba(13, 17, 23, 0.65); padding: 3px 8px; border-top-left-radius: 8px; }
+  .cols { margin-top: 18px; -webkit-box-align: start; -webkit-align-items: flex-start; align-items: flex-start; }
+  .ing { padding: 16px 20px; box-sizing: border-box; }
+  .steps { padding: 16px 22px; }
+  .ing h3, .steps h3, .sect h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: #8b949e; }
+  .ing li { font-size: 18px; padding: 5px 0; list-style: none; border-top: 1px solid #21262d; }
+  .ing li:first-child { border-top: 0; }
+  .ing ul, .steps ol { margin: 0; padding: 0; }
+  .steps ol { padding-left: 24px; }
+  .steps li { font-size: 19px; line-height: 1.5; margin-bottom: 10px; -webkit-user-select: text; }
+  .amt { color: #8b949e; }
+
+  .pick { padding: 12px 16px; margin-bottom: 8px; font-size: 19px; }
+  .pick.vald { box-shadow: 0 0 0 2px #388bfd inset; }
+  .eget { font-size: 12px; font-weight: 600; color: #8b949e; border: 1px solid #484f58; border-radius: 9px;
+    padding: 1px 7px; margin-left: 6px; vertical-align: 2px; }
+  .grp { margin: 26px 0 10px; }
+  .grp b { font-size: 22px; font-weight: 600; margin-left: 12px; }
+  .grp span { font-size: 15px; color: #8b949e; margin-left: 10px; }
+  .ikon { width: 44px; height: 44px; border-radius: 22px; text-align: center; }
+  .ikon svg { width: 26px; height: 26px; margin-top: 9px; }
+  .hopp { margin-top: 16px; }
+  .hopp .btn { margin: 0 8px 0 0; padding: 6px 14px 6px 6px; border-radius: 22px; }
+  .hopp .ikon { width: 32px; height: 32px; display: inline-block; vertical-align: middle; margin-right: 8px; }
+  .hopp .ikon svg { width: 20px; height: 20px; margin-top: 6px; }
+  .i-kyckling { background: rgba(210, 153, 34, 0.18); fill: #d29922; color: #d29922; }
+  .i-fisk { background: rgba(88, 166, 255, 0.18); fill: #58a6ff; color: #58a6ff; }
+  .i-kott { background: rgba(248, 81, 73, 0.18); fill: #f85149; color: #f85149; }
+  .i-vego { background: rgba(63, 185, 80, 0.18); fill: #3fb950; color: #3fb950; }
+
+  .sect { padding: 14px 18px 6px; margin-bottom: 12px; }
+  .item { padding: 10px 0; border-top: 1px solid #21262d; }
+  .item:first-of-type { border-top: 0; }
+  .box { width: 26px; height: 26px; border-radius: 13px; border: 2px solid #484f58; margin-right: 14px;
+    box-sizing: border-box; text-align: center; line-height: 22px; font-size: 16px; color: #0d1117; }
+  .klar .box { background: #3fb950; border-color: #3fb950; }
+  .klar .iname, .klar .iamt { color: #6e7681; text-decoration: line-through; }
+  .iname { font-size: 19px; }
+  .ifor { font-size: 13px; color: #6e7681; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .iamt { font-size: 18px; color: #c9d1d9; margin-left: 12px; white-space: nowrap; }
+  .del { font-size: 20px; color: #8b949e; padding: 0 6px 0 16px; }
+  .add input { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-width: 0; font-size: 18px; padding: 10px 12px;
+    border-radius: 10px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3;
+    -webkit-appearance: none; -webkit-user-select: text; }
+  .add { padding: 12px 18px; margin-bottom: 12px; }
+  textarea.copy { width: 100%; height: 220px; box-sizing: border-box; margin-top: 12px; font-size: 16px;
+    background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 10px; padding: 10px;
+    -webkit-user-select: text; }
+
+  /* Stående iPad: recept i en spalt */
+  @media (orientation: portrait) {
+    .cols { display: block; }
+    .vanster { width: auto; margin: 0 0 14px; }
+    .foto { height: 340px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script src="egna-recept.js"></script>
+<script>
+(function () {
+  // ---- Recept (4 personer, högst 40 min) ----
+  // Ingrediens: [mängd, enhet, vara, (visningstext vid flera)]. Mängd 0 = "efter smak".
+  // Varans namn måste finnas i VAROR så den hamnar rätt i inköpslistan.
+  var RECEPT = [
+    // Kyckling
+    { id: 'k1', kat: 'kyckling', namn: 'Kycklingcurry med kokosmjölk och ris', tid: 30,
+      ing: [[600, 'g', 'kycklingfilé'], [1, 'st', 'gul lök'], [2, 'klyftor', 'vitlök'], [1, 'bit', 'färsk ingefära'],
+            [1, 'st', 'röd paprika'], [1.5, 'msk', 'currypulver'], [400, 'ml', 'kokosmjölk'],
+            [1, 'st', 'hönsbuljongtärning'], [3, 'dl', 'jasminris'], [2, 'msk', 'olja'], [0, '', 'salt']],
+      steg: ['Koka riset enligt förpackningen.',
+             'Skär kycklingen i bitar. Hacka lök, vitlök och ingefära. Strimla paprikan.',
+             'Bryn kycklingen i hälften av oljan, ta upp den.',
+             'Fräs lök, vitlök, ingefära och curry i resten av oljan i 2 minuter.',
+             'Tillsätt paprika, kokosmjölk, smulad buljongtärning och kycklingen. Låt sjuda 10 minuter.',
+             'Smaka av med salt och servera med riset.'] },
+    { id: 'k2', kat: 'kyckling', namn: 'Krämig kycklingpasta med soltorkade tomater och spenat', tid: 25,
+      ing: [[500, 'g', 'pasta'], [600, 'g', 'kycklingfilé'], [1, 'st', 'gul lök'], [2, 'klyftor', 'vitlök'],
+            [100, 'g', 'soltorkade tomater'], [3, 'dl', 'matlagningsgrädde'], [65, 'g', 'babyspenat'],
+            [1, 'dl', 'riven parmesan'], [1, 'msk', 'olja'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Koka pastan enligt förpackningen.',
+             'Skär kycklingen i bitar och stek den genom i olja. Salta och peppra.',
+             'Hacka lök, vitlök och soltorkade tomater och fräs med kycklingen några minuter.',
+             'Häll i grädden och låt puttra 5 minuter. Rör ner spenaten tills den sjunkit ihop.',
+             'Vänd ner pastan och parmesanen. Smaka av med salt och peppar.'] },
+    { id: 'k3', kat: 'kyckling', namn: 'Kycklingwok med nudlar och grönsaker', tid: 20,
+      ing: [[250, 'g', 'äggnudlar'], [500, 'g', 'kycklingfilé'], [1, 'st', 'broccoli'], [2, 'st', 'morot', 'morötter'],
+            [1, 'st', 'röd paprika'], [2, 'klyftor', 'vitlök'], [1, 'bit', 'färsk ingefära'],
+            [4, 'msk', 'japansk soja'], [2, 'msk', 'sweet chilisås'], [2, 'msk', 'olja']],
+      steg: ['Koka nudlarna enligt förpackningen och spola dem kalla.',
+             'Skär kycklingen i strimlor, broccolin i små buketter, morötterna i tunna stavar och paprikan i strimlor.',
+             'Wok kycklingen i het olja tills den är genomstekt, ta upp.',
+             'Wok grönsakerna med riven vitlök och ingefära i 3–4 minuter.',
+             'Lägg tillbaka kycklingen, tillsätt nudlar, soja och sweet chilisås och vänd runt tills allt är varmt.'] },
+    { id: 'k4', kat: 'kyckling', namn: 'Kycklingtortillas med majs och avokado', tid: 25,
+      ing: [[600, 'g', 'kycklingfilé'], [1, 'påse', 'tacokrydda'], [8, 'st', 'tortillabröd'], [1, 'st', 'romansallad'],
+            [2, 'st', 'avokado'], [1, 'burk', 'majs'], [250, 'g', 'körsbärstomater'], [2, 'dl', 'gräddfil'],
+            [1, 'st', 'lime'], [1, 'msk', 'olja']],
+      steg: ['Skär kycklingen i strimlor och stek i olja. Rör ner tacokryddan och lite vatten enligt påsen.',
+             'Skär avokado, tomater och sallad. Pressa lime över avokadon. Låt majsen rinna av.',
+             'Värm tortillabröden i torr stekpanna eller ugn.',
+             'Ställ fram allt och låt var och en fylla sina tortillas, toppa med gräddfil.'] },
+    { id: 'k5', kat: 'kyckling', namn: 'Kycklingsouvlaki med tzatziki och pitabröd', tid: 30,
+      ing: [[600, 'g', 'kycklingfilé'], [1, 'st', 'citron'], [3, 'klyftor', 'vitlök'], [1, 'tsk', 'oregano'],
+            [3, 'msk', 'olivolja'], [1, 'st', 'gurka'], [3, 'dl', 'turkisk yoghurt'], [8, 'st', 'pitabröd'],
+            [1, 'st', 'rödlök'], [250, 'g', 'körsbärstomater'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Skär kycklingen i bitar. Blanda med saften av halva citronen, 2 pressade vitlöksklyftor, oregano, olivolja, salt och peppar. Låt stå 10 minuter.',
+             'Tzatziki: riv halva gurkan grovt, krama ur vätskan och blanda med yoghurt, 1 pressad vitlöksklyfta och salt.',
+             'Stek kycklingen i het panna 6–8 minuter tills den är genomstekt.',
+             'Skiva resten av gurkan, tomaterna och rödlöken. Värm pitabröden.',
+             'Fyll pitabröden med kyckling, grönsaker och tzatziki. Servera med citronklyftor.'] },
+    { id: 'k6', kat: 'kyckling', namn: 'Kyckling med fetaost och oliver i ugn, med couscous', tid: 35,
+      ing: [[800, 'g', 'kycklinglårfilé'], [250, 'g', 'körsbärstomater'], [1, 'st', 'rödlök'], [1, 'st', 'zucchini'],
+            [100, 'g', 'svarta oliver'], [150, 'g', 'fetaost'], [2, 'msk', 'olivolja'], [1, 'tsk', 'oregano'],
+            [3, 'dl', 'couscous'], [1, 'st', 'grönsaksbuljongtärning'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Sätt ugnen på 225°.',
+             'Lägg kycklingen i en ugnsform. Skär rödlök och zucchini i bitar och lägg runt om med tomater och oliver.',
+             'Ringla över olivolja, strö över oregano, salt och peppar. Smula fetaosten över.',
+             'Baka mitt i ugnen ca 25 minuter tills kycklingen är genomstekt.',
+             'Koka upp vatten enligt couscouspaketet med buljongtärningen, häll över couscousen och låt svälla.'] },
+    { id: 'k7', kat: 'kyckling', namn: 'Teriyakikyckling med ris och broccoli', tid: 25,
+      ing: [[700, 'g', 'kycklinglårfilé'], [1, 'dl', 'teriyakisås'], [1, 'st', 'broccoli'], [3, 'dl', 'jasminris'],
+            [1, 'knippe', 'salladslök'], [1, 'msk', 'sesamfrön'], [1, 'msk', 'olja']],
+      steg: ['Koka riset enligt förpackningen.',
+             'Skär kycklingen i bitar och stek i olja tills den fått färg och är genomstekt.',
+             'Häll i teriyakisåsen och låt det puttra någon minut tills såsen blivit blank och kladdig.',
+             'Dela broccolin i buketter och koka eller ånga den 3–4 minuter.',
+             'Servera kycklingen på riset med broccoli, strimlad salladslök och sesamfrön.'] },
+
+    // Fisk
+    { id: 'f1', kat: 'fisk', namn: 'Ugnsbakad lax med dillsås och potatis', tid: 30,
+      ing: [[600, 'g', 'laxfilé'], [1, 'kg', 'potatis'], [1, 'st', 'citron'], [2, 'dl', 'crème fraiche'],
+            [1, 'knippe', 'dill'], [200, 'g', 'sockerärtor'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Sätt ugnen på 200°. Koka potatisen i saltat vatten ca 20 minuter.',
+             'Lägg laxen i en ugnsform, salta, peppra och lägg på några citronskivor. Baka ca 15 minuter.',
+             'Dillsås: blanda crème fraiche med hackad dill, lite rivet citronskal, salt och peppar.',
+             'Koka sockerärtorna 1 minut.',
+             'Servera laxen med potatis, sockerärtor och dillsås.'] },
+    { id: 'f2', kat: 'fisk', namn: 'Torsk med ägg, brynt smör och potatis', tid: 30,
+      ing: [[600, 'g', 'torskfilé'], [1, 'kg', 'potatis'], [4, 'st', 'ägg'], [100, 'g', 'smör'],
+            [1, 'st', 'citron'], [1, 'knippe', 'dill'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Koka potatisen i saltat vatten ca 20 minuter.',
+             'Koka äggen 8 minuter, kyl dem och hacka.',
+             'Lägg torsken i en ugnsform, salta och peppra. Baka i 175° ca 15 minuter (eller tills den precis flagnar).',
+             'Bryn smöret i en kastrull tills det blir nötbrunt och doftar.',
+             'Servera torsken med potatis, hackat ägg, hackad dill, brynt smör och citronklyftor.'] },
+    { id: 'f3', kat: 'fisk', namn: 'Laxpasta med spenat och citron', tid: 20,
+      ing: [[500, 'g', 'pasta'], [400, 'g', 'laxfilé'], [2.5, 'dl', 'matlagningsgrädde'], [65, 'g', 'babyspenat'],
+            [1, 'st', 'citron'], [1, 'klyftor', 'vitlök'], [1, 'dl', 'riven parmesan'], [1, 'msk', 'olja'],
+            [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Koka pastan enligt förpackningen.',
+             'Skär laxen i bitar. Fräs pressad vitlök i olja, häll i grädden och låt koka upp.',
+             'Lägg i laxen och låt sjuda 4–5 minuter. Rör ner spenaten.',
+             'Riv i citronskal och pressa i lite citronsaft. Salta och peppra.',
+             'Vänd ner pastan och servera med parmesan.'] },
+    { id: 'f4', kat: 'fisk', namn: 'Fisktacos med torsk och limecrème', tid: 25,
+      ing: [[600, 'g', 'torskfilé'], [1, 'dl', 'vetemjöl'], [1, 'påse', 'tacokrydda'], [8, 'st', 'tortillabröd'],
+            [0.25, 'st', 'rödkål'], [2, 'st', 'lime'], [2, 'dl', 'gräddfil'], [1, 'st', 'avokado'],
+            [1, 'knippe', 'koriander'], [2, 'msk', 'olja'], [0, '', 'salt']],
+      steg: ['Skär torsken i bitar. Blanda mjöl, tacokrydda och salt och vänd fisken i blandningen.',
+             'Limecrème: blanda gräddfil med rivet skal och saft från en lime och en nypa salt.',
+             'Strimla rödkålen tunt och pressa över lite limesaft. Skiva avokadon.',
+             'Stek fisken i olja ca 2 minuter per sida tills den fått fin färg.',
+             'Värm tortillabröden och fyll med kål, fisk, avokado, limecrème och koriander.'] },
+    { id: 'f5', kat: 'fisk', namn: 'Röd thaicurry med räkor', tid: 20,
+      ing: [[400, 'g', 'skalade räkor'], [2, 'msk', 'röd currypasta'], [400, 'ml', 'kokosmjölk'], [1, 'st', 'röd paprika'],
+            [150, 'g', 'sockerärtor'], [1, 'st', 'lime'], [1, 'msk', 'fisksås'], [3, 'dl', 'jasminris'],
+            [1, 'knippe', 'koriander'], [1, 'msk', 'olja']],
+      steg: ['Koka riset enligt förpackningen. Tina räkorna om de är frysta.',
+             'Fräs currypastan i olja någon minut. Häll i kokosmjölken och låt koka upp.',
+             'Lägg i strimlad paprika och sockerärtor och låt sjuda 3–4 minuter.',
+             'Lägg i räkorna och värm dem bara igenom. Smaka av med fisksås och limesaft.',
+             'Servera med riset och toppa med koriander.'] },
+    { id: 'f6', kat: 'fisk', namn: 'Sej med tomat och oliver i ugn, med ris', tid: 30,
+      ing: [[600, 'g', 'sejfilé'], [1, 'burk', 'krossade tomater'], [1, 'st', 'gul lök'], [2, 'klyftor', 'vitlök'],
+            [100, 'g', 'svarta oliver'], [1, 'tsk', 'torkad timjan'], [3, 'dl', 'jasminris'], [1, 'msk', 'olivolja'],
+            [1, 'st', 'citron'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Sätt ugnen på 200° och koka riset.',
+             'Fräs hackad lök och vitlök i olivolja. Tillsätt krossade tomater, timjan, oliver, salt och peppar och låt puttra 5 minuter.',
+             'Lägg sejen i en ugnsform, salta lätt och häll tomatsåsen över.',
+             'Baka mitt i ugnen ca 15–20 minuter.',
+             'Servera med ris och citronklyftor.'] },
+    { id: 'f7', kat: 'fisk', namn: 'Snabb fisksoppa med räkor och saffran', tid: 35,
+      ing: [[500, 'g', 'torskfilé'], [200, 'g', 'skalade räkor'], [1, 'st', 'gul lök'], [2, 'klyftor', 'vitlök'],
+            [1, 'st', 'fänkål'], [2, 'st', 'morot', 'morötter'], [1, 'burk', 'krossade tomater'], [1, 'st', 'fiskbuljongtärning'],
+            [2, 'dl', 'matlagningsgrädde'], [0.5, 'g', 'saffran'], [1, 'knippe', 'dill'], [1, 'msk', 'olivolja'],
+            [1, 'st', 'surdegsbröd'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Hacka lök, vitlök och fänkål. Skiva morötterna tunt.',
+             'Fräs grönsakerna i olivolja i en stor kastrull utan att de får färg.',
+             'Tillsätt krossade tomater, 8 dl vatten, buljongtärning och saffran. Låt koka 10 minuter.',
+             'Häll i grädden. Skär fisken i bitar, lägg i och låt sjuda 4–5 minuter.',
+             'Lägg i räkorna, smaka av med salt och peppar och toppa med dill. Servera med bröd.'] },
+
+    // Kött
+    { id: 'm1', kat: 'kott', namn: 'Spaghetti med köttfärssås', tid: 30,
+      ing: [[500, 'g', 'nötfärs'], [1, 'st', 'gul lök'], [2, 'klyftor', 'vitlök'], [1, 'st', 'morot'],
+            [1, 'burk', 'krossade tomater'], [2, 'msk', 'tomatpuré'], [1, 'st', 'köttbuljongtärning'], [1, 'tsk', 'oregano'],
+            [500, 'g', 'spaghetti'], [1, 'dl', 'riven parmesan'], [1, 'msk', 'olja'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Hacka lök och vitlök, riv moroten.',
+             'Bryn färsen i olja, tillsätt lök, vitlök och morot och fräs några minuter.',
+             'Rör ner tomatpuré, krossade tomater, 1 dl vatten, buljongtärning och oregano. Låt puttra 15 minuter.',
+             'Koka spaghettin under tiden.',
+             'Smaka av såsen med salt och peppar och servera med spaghetti och parmesan.'] },
+    { id: 'm2', kat: 'kott', namn: 'Korv stroganoff med ris', tid: 25,
+      ing: [[600, 'g', 'falukorv'], [1, 'st', 'gul lök'], [2, 'msk', 'tomatpuré'], [2.5, 'dl', 'matlagningsgrädde'],
+            [1, 'msk', 'senap'], [3, 'dl', 'jasminris'], [1, 'msk', 'smör'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Koka riset enligt förpackningen.',
+             'Skär korven i strimlor och hacka löken.',
+             'Stek korv och lök i smör tills det fått färg.',
+             'Rör ner tomatpuré och senap, häll i grädden och 1 dl vatten. Låt puttra 5 minuter.',
+             'Smaka av med salt och peppar och servera med riset.'] },
+    { id: 'm3', kat: 'kott', namn: 'Tacos med nötfärs', tid: 25,
+      ing: [[500, 'g', 'nötfärs'], [1, 'påse', 'tacokrydda'], [8, 'st', 'tortillabröd'], [1, 'st', 'romansallad'],
+            [2, 'st', 'tomat', 'tomater'], [1, 'st', 'gurka'], [1, 'burk', 'majs'], [2, 'dl', 'gräddfil'],
+            [150, 'g', 'riven ost'], [1, 'burk', 'tacosås'], [1, 'msk', 'olja']],
+      steg: ['Bryn färsen i olja. Tillsätt tacokrydda och vatten enligt påsen och låt puttra några minuter.',
+             'Skär sallad, tomat och gurka. Låt majsen rinna av.',
+             'Värm tortillabröden.',
+             'Ställ fram allt med riven ost, gräddfil och tacosås.'] },
+    { id: 'm4', kat: 'kott', namn: 'Fläskfilé med champinjonsås och ris', tid: 35,
+      ing: [[600, 'g', 'fläskfilé'], [250, 'g', 'champinjoner'], [1, 'st', 'gul lök'], [3, 'dl', 'matlagningsgrädde'],
+            [1, 'st', 'köttbuljongtärning'], [1, 'msk', 'japansk soja'], [3, 'dl', 'jasminris'], [200, 'g', 'haricots verts'],
+            [2, 'msk', 'smör'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Koka riset enligt förpackningen.',
+             'Skär fläskfilén i 2 cm tjocka medaljonger. Salta och peppra och stek i smör ca 3 minuter per sida. Lägg upp.',
+             'Skiva champinjonerna och hacka löken. Stek dem i samma panna tills svampen fått färg.',
+             'Häll i grädden, smulad buljongtärning och soja. Låt koka ihop några minuter och lägg tillbaka köttet.',
+             'Koka haricots verts 3 minuter och servera allt tillsammans.'] },
+    { id: 'm5', kat: 'kott', namn: 'Köttbullar med potatismos, gräddsås och lingon', tid: 40,
+      ing: [[500, 'g', 'blandfärs'], [1, 'st', 'gul lök'], [1, 'st', 'ägg'], [0.5, 'dl', 'ströbröd'], [3, 'dl', 'mjölk'],
+            [1, 'kg', 'potatis'], [50, 'g', 'smör'], [2, 'dl', 'matlagningsgrädde'], [1, 'st', 'köttbuljongtärning'],
+            [1, 'msk', 'japansk soja'], [1, 'dl', 'lingonsylt'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Skala potatisen, dela den och koka mjuk i saltat vatten, ca 20 minuter.',
+             'Blanda ströbröd med 1 dl mjölk och låt svälla. Riv i löken, tillsätt färs, ägg, salt och peppar och blanda.',
+             'Rulla små bullar med våta händer och stek dem i smör i omgångar, ca 6–8 minuter.',
+             'Gräddsås: häll grädde, smulad buljongtärning och soja i pannan och låt koka ihop.',
+             'Mosa potatisen med 2 dl varm mjölk och smör, salta. Servera med köttbullar, sås och lingon.'] },
+    { id: 'm6', kat: 'kott', namn: 'Chili con carne med ris', tid: 35,
+      ing: [[500, 'g', 'nötfärs'], [1, 'st', 'gul lök'], [2, 'klyftor', 'vitlök'], [1, 'st', 'röd paprika'],
+            [1, 'tsk', 'spiskummin'], [1, 'msk', 'paprikapulver'], [1, 'tsk', 'chiliflakes'], [1, 'burk', 'krossade tomater'],
+            [1, 'burk', 'kidneybönor'], [2, 'msk', 'tomatpuré'], [1, 'st', 'köttbuljongtärning'], [3, 'dl', 'jasminris'],
+            [2, 'dl', 'gräddfil'], [1, 'msk', 'olja'], [0, '', 'salt']],
+      steg: ['Koka riset enligt förpackningen.',
+             'Bryn färsen i olja med hackad lök, vitlök och paprika.',
+             'Rör ner spiskummin, paprikapulver, chiliflakes och tomatpuré och fräs någon minut.',
+             'Tillsätt krossade tomater, sköljda bönor, 1 dl vatten och buljongtärning. Låt puttra 15 minuter.',
+             'Smaka av med salt och servera med ris och en klick gräddfil.'] },
+    { id: 'm7', kat: 'kott', namn: 'Pasta carbonara', tid: 20,
+      ing: [[500, 'g', 'spaghetti'], [280, 'g', 'bacon'], [4, 'st', 'ägg'], [2, 'dl', 'riven parmesan'],
+            [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Koka spaghettin i rikligt med saltat vatten. Spara 1 dl av pastavattnet.',
+             'Skär baconet i bitar och stek knaprigt.',
+             'Vispa ihop ägg, parmesan och mycket svartpeppar.',
+             'Ta pannan från värmen, lägg i den varma pastan och häll i äggblandningen. Rör snabbt, späd med pastavatten tills såsen blir krämig.',
+             'Servera direkt med mer parmesan och peppar.'] },
+
+    // Vegetariskt
+    { id: 'v1', kat: 'vego', namn: 'Halloumi med rostade grönsaker och couscous', tid: 35,
+      ing: [[400, 'g', 'halloumi'], [1, 'st', 'zucchini'], [1, 'st', 'röd paprika'], [1, 'st', 'rödlök'],
+            [250, 'g', 'körsbärstomater'], [3, 'dl', 'couscous'], [1, 'st', 'grönsaksbuljongtärning'], [3, 'msk', 'olivolja'],
+            [2, 'dl', 'turkisk yoghurt'], [1, 'klyftor', 'vitlök'], [1, 'st', 'citron'], [1, 'tsk', 'oregano'],
+            [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Sätt ugnen på 225°. Skär zucchini, paprika och rödlök i bitar och lägg på en plåt med tomaterna.',
+             'Ringla över olivolja, strö över oregano, salt och peppar och rosta ca 20 minuter.',
+             'Koka upp vatten med buljongtärning enligt couscouspaketet och låt couscousen svälla.',
+             'Blanda yoghurt med pressad vitlök, lite citronsaft och salt.',
+             'Skiva halloumin och stek den gyllene i torr panna. Servera på couscousen med grönsakerna och yoghurtsåsen.'] },
+    { id: 'v2', kat: 'vego', namn: 'Röd linsgryta med kokos och spenat', tid: 30,
+      ing: [[3, 'dl', 'röda linser'], [1, 'st', 'gul lök'], [2, 'klyftor', 'vitlök'], [1, 'bit', 'färsk ingefära'],
+            [1, 'msk', 'currypulver'], [1, 'tsk', 'spiskummin'], [1, 'burk', 'krossade tomater'], [400, 'ml', 'kokosmjölk'],
+            [1, 'st', 'grönsaksbuljongtärning'], [65, 'g', 'babyspenat'], [3, 'dl', 'jasminris'], [2, 'msk', 'olja'],
+            [0, '', 'salt']],
+      steg: ['Koka riset enligt förpackningen. Skölj linserna.',
+             'Fräs hackad lök, vitlök och ingefära i olja. Tillsätt curry och spiskummin och fräs någon minut till.',
+             'Tillsätt linser, krossade tomater, kokosmjölk, 3 dl vatten och buljongtärning.',
+             'Låt koka ca 15 minuter tills linserna är mjuka. Rör om då och då.',
+             'Rör ner spenaten, smaka av med salt och servera med riset.'] },
+    { id: 'v3', kat: 'vego', namn: 'Krämig svamppasta', tid: 25,
+      ing: [[500, 'g', 'pasta'], [500, 'g', 'champinjoner'], [1, 'st', 'gul lök'], [2, 'klyftor', 'vitlök'],
+            [3, 'dl', 'matlagningsgrädde'], [1, 'st', 'grönsaksbuljongtärning'], [1, 'dl', 'riven parmesan'],
+            [65, 'g', 'babyspenat'], [2, 'msk', 'smör'], [1, 'tsk', 'torkad timjan'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Koka pastan enligt förpackningen.',
+             'Skiva svampen och stek den i smör på hög värme tills den fått fin färg.',
+             'Tillsätt hackad lök, vitlök och timjan och fräs några minuter.',
+             'Häll i grädden och smulad buljongtärning och låt puttra 5 minuter. Rör ner spenaten.',
+             'Vänd ner pastan och parmesanen, smaka av med salt och peppar.'] },
+    { id: 'v4', kat: 'vego', namn: 'Vegotacos med svarta bönor och majs', tid: 25,
+      ing: [[2, 'burk', 'svarta bönor'], [1, 'burk', 'majs'], [1, 'st', 'rödlök'], [1, 'påse', 'tacokrydda'],
+            [8, 'st', 'tortillabröd'], [2, 'st', 'avokado'], [1, 'st', 'lime'], [250, 'g', 'körsbärstomater'],
+            [1, 'st', 'romansallad'], [150, 'g', 'fetaost'], [2, 'dl', 'gräddfil'], [1, 'msk', 'olja']],
+      steg: ['Skölj bönorna och låt majsen rinna av.',
+             'Fräs hackad rödlök i olja, tillsätt bönor, majs, tacokrydda och lite vatten. Låt puttra 5 minuter och mosa lätt.',
+             'Mosa avokadon med limesaft och salt. Skär tomater och sallad.',
+             'Värm tortillabröden och fyll med bönröra, grönsaker, avokado, smulad feta och gräddfil.'] },
+    { id: 'v5', kat: 'vego', namn: 'Shakshuka med fetaost och bröd', tid: 30,
+      ing: [[8, 'st', 'ägg'], [2, 'burk', 'krossade tomater'], [1, 'st', 'gul lök'], [2, 'st', 'röd paprika', 'röda paprikor'],
+            [2, 'klyftor', 'vitlök'], [1, 'tsk', 'spiskummin'], [1, 'tsk', 'paprikapulver'], [150, 'g', 'fetaost'],
+            [1, 'knippe', 'persilja'], [1, 'st', 'surdegsbröd'], [2, 'msk', 'olivolja'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Fräs hackad lök, strimlad paprika och vitlök i olivolja i en stor panna ca 5 minuter.',
+             'Tillsätt spiskummin och paprikapulver, sedan krossade tomater. Låt puttra 10 minuter. Salta och peppra.',
+             'Gör åtta gropar i såsen och knäck i äggen.',
+             'Lägg på lock och låt sjuda 6–8 minuter tills vitorna stelnat.',
+             'Smula över fetaost och persilja och servera direkt med brödet.'] },
+    { id: 'v6', kat: 'vego', namn: 'Tofuwok med jordnötssås och ris', tid: 25,
+      ing: [[400, 'g', 'fast tofu'], [1, 'st', 'broccoli'], [2, 'st', 'morot', 'morötter'], [150, 'g', 'sockerärtor'],
+            [3, 'dl', 'jasminris'], [3, 'msk', 'jordnötssmör'], [3, 'msk', 'japansk soja'], [1, 'st', 'lime'],
+            [1, 'msk', 'sweet chilisås'], [1, 'klyftor', 'vitlök'], [0.5, 'dl', 'jordnötter'], [2, 'msk', 'olja']],
+      steg: ['Koka riset enligt förpackningen.',
+             'Jordnötssås: rör ihop jordnötssmör, soja, sweet chilisås, limesaft, pressad vitlök och 1 dl varmt vatten.',
+             'Pressa ur tofun lätt, skär i tärningar och stek krispig i olja. Ta upp.',
+             'Wok broccoli, morotsstavar och sockerärtor 3–4 minuter.',
+             'Lägg tillbaka tofun, häll över såsen och toppa med hackade jordnötter. Servera med riset.'] },
+    { id: 'v7', kat: 'vego', namn: 'Gratinerad gnocchi med tomat och mozzarella', tid: 25,
+      ing: [[1, 'kg', 'gnocchi'], [1, 'burk', 'krossade tomater'], [250, 'g', 'körsbärstomater'], [1, 'st', 'gul lök'],
+            [2, 'klyftor', 'vitlök'], [250, 'g', 'mozzarella'], [1, 'kruka', 'basilika'], [1, 'dl', 'riven parmesan'],
+            [2, 'msk', 'olivolja'], [1, 'tsk', 'socker'], [0, '', 'salt'], [0, '', 'peppar']],
+      steg: ['Sätt ugnen på 225°.',
+             'Fräs hackad lök och vitlök i olivolja. Tillsätt krossade tomater, halverade körsbärstomater, socker, salt och peppar. Låt puttra 5 minuter.',
+             'Koka gnocchin enligt förpackningen (de är klara när de flyter upp).',
+             'Blanda gnocchi och tomatsås i en ugnsform, riv i lite basilika och toppa med bitar av mozzarella och parmesan.',
+             'Gratinera i ugnen ca 10 minuter. Toppa med basilika.'] }
+  ];
+
+  var KATEGORIER = {
+    kyckling: 'Kyckling', fisk: 'Fisk', kott: 'Kött', vego: 'Vegetariskt'
+  };
+  // Ikoner (SVG, 24×24) som färgas med kategorins färg via CSS-klassen i-<kategori>
+  var IKONER = {
+    // kycklingklubba
+    kyckling: '<circle cx="15" cy="9" r="6.5"/><path d="M11.5 12.5L5.8 18.2" stroke-width="2.6" stroke-linecap="round" stroke="currentColor"/>' +
+              '<circle cx="4.2" cy="17.6" r="1.9"/><circle cx="6.4" cy="19.8" r="1.9"/>',
+    // fisk med stjärt och öga
+    fisk: '<ellipse cx="10" cy="12" rx="7.5" ry="5"/><path d="M15.5 12L22 6.5V17.5Z"/>' +
+          '<circle cx="6.3" cy="11" r="1.2" fill="#161b22"/>',
+    // köttbit med ben
+    kott: '<path d="M3.5 11C3.5 6.5 7.5 4 12.5 4S21 6.5 21 10.5c0 3.5-2.2 5.2-4.2 6.7C14.8 18.8 13.6 21 10 21c-3.6 0-6.5-2.6-6.5-6 0-1.6.4-2.6 0-4z"/>' +
+          '<circle cx="15" cy="9.5" r="2.3" fill="#161b22"/>',
+    // blad
+    vego: '<path d="M20.5 3.5C10.5 3.5 4 8.5 4 15c0 2 .6 3.6 1.6 4.6C7.3 15.2 11 11.8 15 10c-3.6 2.6-6.6 6.2-8 10.6 1 .4 2.2.6 3.4.6 7 0 10.1-8.3 10.1-17.7z"/>'
+  };
+  function ikon(kat) {
+    return '<div class="ikon i-' + kat + '"><svg viewBox="0 0 24 24">' + IKONER[kat] + '</svg></div>';
+  }
+
+  // ---- Bilder till recepten ----
+  // Fritt licensierade foton från Wikimedia Commons (hämtas därifrån, kräver internet).
+  // Licenserna kräver att fotografen och licensen anges, det görs under bilden.
+  // Saknas en bild för ett recept visas receptet utan bild.
+  var BILDER = {
+    k1: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Chicken_curry_Trivandrum.jpg/960px-Chicken_curry_Trivandrum.jpg',
+          foto: 'Abhilashsnair', lic: 'CC0' },
+    k2: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fe/Roasted_Chicken_Penne_Asiago_%283374729757%29.jpg/960px-Roasted_Chicken_Penne_Asiago_%283374729757%29.jpg',
+          foto: 'Geoff Peters', lic: 'CC BY 2.0' },
+    k3: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Chicken_noodle_stir_fry_%281027271537%29.jpg/960px-Chicken_noodle_stir_fry_%281027271537%29.jpg',
+          foto: 'Father.Jack', lic: 'CC BY 2.0' },
+    k4: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Fajitas_Wraps.JPG/960px-Fajitas_Wraps.JPG',
+          foto: 'Miansari66', lic: 'CC0' },
+    k5: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Souvlaki_in_Athens.JPG/960px-Souvlaki_in_Athens.JPG',
+          foto: 'Miyagawa', lic: 'CC BY-SA 4.0' },
+    k6: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/The_girl_and_the_fig_-_June_2021_-_Sarah_Stierch.jpg/960px-The_girl_and_the_fig_-_June_2021_-_Sarah_Stierch.jpg',
+          foto: 'Missvain', lic: 'CC BY 4.0' },
+    k7: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/Teriyaki_Chicken_Rice_Bowl_from_Botejyu_%282024-12-21%29.jpg/960px-Teriyaki_Chicken_Rice_Bowl_from_Botejyu_%282024-12-21%29.jpg',
+          foto: 'Wide Awake!', lic: 'CC BY 4.0' },
+    f1: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/02021_0652_%281%29_Kuskus_with_baked_salmon_and_vegetable.jpg/960px-02021_0652_%281%29_Kuskus_with_baked_salmon_and_vegetable.jpg',
+          foto: 'Silar', lic: 'CC BY-SA 4.0' },
+    f2: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6e/Kuhler_Pannfisch.jpg/960px-Kuhler_Pannfisch.jpg',
+          foto: 'Benreis', lic: 'CC BY-SA 4.0' },
+    f3: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Pasta_with_cold-smoked_salmon_and_peas_in_Loviisa.jpg/960px-Pasta_with_cold-smoked_salmon_and_peas_in_Loviisa.jpg',
+          foto: 'JIP', lic: 'CC BY-SA 4.0' },
+    f4: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Fish_tacos_from_Pezcow_-_April_2023_-_Sarah_Stierch.jpg/960px-Fish_tacos_from_Pezcow_-_April_2023_-_Sarah_Stierch.jpg',
+          foto: 'Missvain', lic: 'CC BY 4.0' },
+    f5: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/Prawn_and_okra_curry.jpg/960px-Prawn_and_okra_curry.jpg',
+          foto: 'DreamyFlutura11', lic: 'CC BY-SA 4.0' },
+    f6: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/Baked_Fish_with_Tomato_Sauce_with_Lemon_Slices.jpg/960px-Baked_Fish_with_Tomato_Sauce_with_Lemon_Slices.jpg',
+          foto: 'Peachyeung316', lic: 'CC BY-SA 4.0' },
+    f7: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Pakhusets_fiskesuppe.jpg/960px-Pakhusets_fiskesuppe.jpg',
+          foto: 'Benreis', lic: 'CC BY-SA 4.0' },
+    m1: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Spaghetti_Bolognese_-_Figaros%2C_Brighton_2023-10-06.jpg/960px-Spaghetti_Bolognese_-_Figaros%2C_Brighton_2023-10-06.jpg',
+          foto: 'Andy Li', lic: 'CC0' },
+    m2: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Korvstroganoff_in_pan.jpg/960px-Korvstroganoff_in_pan.jpg',
+          foto: 'Blockhaj', lic: 'CC BY 4.0' },
+    m3: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/001_Tacos_de_carnitas%2C_carne_asada_y_al_pastor.jpg/960px-001_Tacos_de_carnitas%2C_carne_asada_y_al_pastor.jpg',
+          foto: 'Larry Miller', lic: 'CC BY-SA 2.0' },
+    m4: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Pork_tenderloin_dish.png/960px-Pork_tenderloin_dish.png',
+          foto: 'User:Ɱ', lic: 'CC BY-SA 4.0' },
+    m5: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Ikea_chicken_meatballs_%28Hyderabad%29.jpg/960px-Ikea_chicken_meatballs_%28Hyderabad%29.jpg',
+          foto: 'Bssasidhar', lic: 'CC BY-SA 4.0' },
+    m6: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/50/Bowl_of_chili.jpg/960px-Bowl_of_chili.jpg',
+          foto: 'Carstor', lic: 'CC BY-SA 2.5' },
+    m7: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2d/Spaghetti_alla_Carbonara_%28Madrid%29.JPG/960px-Spaghetti_alla_Carbonara_%28Madrid%29.JPG',
+          foto: 'Tamorlan', lic: 'CC BY-SA 3.0' },
+    v1: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Halloumi-2.jpg/960px-Halloumi-2.jpg',
+          foto: 'de:Benutzer:Rainer Zenz', lic: 'CC BY-SA 3.0' },
+    v2: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/Dal_rice_with_dum_aloo_and_raw_salad.jpg/960px-Dal_rice_with_dum_aloo_and_raw_salad.jpg',
+          foto: 'Darekarpmanali', lic: 'CC BY-SA 4.0' },
+    v3: { url: 'https://upload.wikimedia.org/wikipedia/commons/8/84/Pasta_of_the_Day.jpg',
+          foto: 'Nikchick', lic: 'CC BY-SA 2.0' },
+    v4: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/Tacos%2C_rice%2C_and_beans.jpg/960px-Tacos%2C_rice%2C_and_beans.jpg',
+          foto: 'Guido', lic: 'CC BY-SA 2.0' },
+    v5: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Shakshuka_by_Calliopejen1.jpg/960px-Shakshuka_by_Calliopejen1.jpg',
+          foto: 'Calliopejen1', lic: 'CC BY-SA 3.0' },
+    v6: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Tofu_stir-fry.jpeg/960px-Tofu_stir-fry.jpeg',
+          foto: 'okänd fotograf', lic: 'CC BY-SA 4.0' },
+    v7: { url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Gnocchi_al_pomodoro.JPG/960px-Gnocchi_al_pomodoro.JPG',
+          foto: 'Ivan Vighetto', lic: 'CC BY-SA 3.0' }
+  };
+
+  // ---- Butiksavdelningar i den ordning de visas i inköpslistan ----
+  var AVDELNINGAR = [
+    ['gront', 'Frukt & grönt'], ['kott', 'Kött & fågel'], ['fisk', 'Fisk & skaldjur'],
+    ['kyl', 'Mejeri & kyl'], ['skafferi', 'Skafferi'], ['kryddor', 'Kryddor & såser'],
+    ['brod', 'Bröd'], ['ovrigt', 'Övrigt'], ['bas', 'Brukar finnas hemma']
+  ];
+  var VAROR = {
+    gront: ['gul lök', 'rödlök', 'vitlök', 'färsk ingefära', 'röd paprika', 'broccoli', 'morot', 'romansallad',
+            'avokado', 'körsbärstomater', 'tomat', 'lime', 'citron', 'gurka', 'zucchini', 'salladslök', 'potatis',
+            'sockerärtor', 'haricots verts', 'dill', 'koriander', 'persilja', 'basilika', 'rödkål', 'fänkål',
+            'champinjoner', 'babyspenat'],
+    kott: ['kycklingfilé', 'kycklinglårfilé', 'nötfärs', 'blandfärs', 'falukorv', 'fläskfilé', 'bacon'],
+    fisk: ['laxfilé', 'torskfilé', 'sejfilé', 'skalade räkor'],
+    kyl: ['matlagningsgrädde', 'crème fraiche', 'gräddfil', 'turkisk yoghurt', 'mjölk', 'ägg', 'riven parmesan',
+          'riven ost', 'fetaost', 'halloumi', 'mozzarella', 'fast tofu', 'gnocchi'],
+    skafferi: ['jasminris', 'pasta', 'spaghetti', 'äggnudlar', 'couscous', 'röda linser', 'kokosmjölk',
+               'krossade tomater', 'tomatpuré', 'soltorkade tomater', 'majs', 'kidneybönor', 'svarta bönor',
+               'svarta oliver', 'ströbröd', 'lingonsylt', 'jordnötssmör', 'jordnötter', 'sesamfrön'],
+    kryddor: ['currypulver', 'oregano', 'torkad timjan', 'spiskummin', 'paprikapulver', 'chiliflakes', 'saffran',
+              'tacokrydda', 'hönsbuljongtärning', 'grönsaksbuljongtärning', 'köttbuljongtärning', 'fiskbuljongtärning',
+              'japansk soja', 'sweet chilisås', 'teriyakisås', 'röd currypasta', 'fisksås', 'senap', 'tacosås'],
+    brod: ['tortillabröd', 'pitabröd', 'surdegsbröd'],
+    bas: ['salt', 'peppar', 'olja', 'olivolja', 'smör', 'vetemjöl', 'socker']
+  };
+  var ENHET_FLER = { burk: 'burkar', 'påse': 'påsar', knippe: 'knippen', kruka: 'krukor', bit: 'bitar', klyftor: 'klyftor' };
+  var DAGAR = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lördag', 'Söndag'];
+  var MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti',
+                 'september', 'oktober', 'november', 'december'];
+
+  // ---- Egna recept från egna-recept.js (om filen finns) ----
+  // De hamnar i biblioteket men slumpas inte in i veckan.
+  if (typeof EGNA_VAROR !== 'undefined') {
+    for (var ev in EGNA_VAROR) { VAROR[ev] = (VAROR[ev] || []).concat(EGNA_VAROR[ev]); }
+  }
+  if (typeof EGNA_RECEPT !== 'undefined') {
+    for (var er = 0; er < EGNA_RECEPT.length; er++) { EGNA_RECEPT[er].egen = true; RECEPT.push(EGNA_RECEPT[er]); }
+  }
+
+  // ---- Hjälpfunktioner ----
+  var avdelningFor = {};
+  for (var a in VAROR) { for (var i = 0; i < VAROR[a].length; i++) { avdelningFor[VAROR[a][i]] = a; } }
+  var receptMedId = {};
+  for (i = 0; i < RECEPT.length; i++) { receptMedId[RECEPT[i].id] = RECEPT[i]; }
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function lasa(nyckel) {
+    try { var v = window.localStorage.getItem(nyckel); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function spara(nyckel, v) {
+    try { window.localStorage.setItem(nyckel, JSON.stringify(v)); } catch (e) {}
+  }
+  function mangdText(n) {
+    var hel = Math.floor(n + 0.001), rest = n - hel, br = '';
+    if (Math.abs(rest - 0.25) < 0.01) br = '¼';
+    else if (Math.abs(rest - 0.5) < 0.01) br = '½';
+    else if (Math.abs(rest - 0.75) < 0.01) br = '¾';
+    else if (rest > 0.01) return String(Math.round(n * 10) / 10).replace('.', ',');
+    return (hel ? String(hel) : '') + br;
+  }
+  function enhetText(enhet, n) {
+    if (enhet === 'st' || enhet === '') return '';
+    if (enhet === 'klyftor' && n <= 1) return 'klyfta';
+    if (n > 1 && ENHET_FLER[enhet]) return ENHET_FLER[enhet];
+    return enhet;
+  }
+  // "2 klyftor vitlök", "1 gul lök", "2 morötter", "salt"
+  function ingrediensText(ing) {
+    if (!ing[0]) return ing[2];
+    var namn = (ing[0] > 1 && ing[3]) ? ing[3] : ing[2];
+    var e = enhetText(ing[1], ing[0]);
+    return mangdText(ing[0]) + ' ' + (e ? e + ' ' : '') + namn;
+  }
+
+  // Enkel slumpgenerator med frö, så att samma vecka alltid ger samma förslag
+  function slump(fro) {
+    var s = (fro % 233280 + 233280) % 233280;
+    return function () { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  }
+  function blanda(lista, r) {
+    var b = lista.slice();
+    for (var i = b.length - 1; i > 0; i--) {
+      var j = Math.floor(r() * (i + 1)), t = b[i]; b[i] = b[j]; b[j] = t;
+    }
+    return b;
+  }
+
+  // ISO-vecka: returnerar { ar, vecka, mandag }
+  function veckaFor(d) {
+    var t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var dag = (t.getDay() + 6) % 7;
+    var mandag = new Date(t.getFullYear(), t.getMonth(), t.getDate() - dag);
+    var tors = new Date(t.getFullYear(), t.getMonth(), t.getDate() - dag + 3);
+    // Vecka 1 är veckan med årets första torsdag
+    var vecka = 1 + Math.floor(Math.round((tors - new Date(tors.getFullYear(), 0, 1)) / 86400000) / 7);
+    return { ar: tors.getFullYear(), vecka: vecka, mandag: mandag };
+  }
+  function plusDagar(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+  function veckoNyckel(v) { return 'matsedel:' + v.ar + '-v' + v.vecka; }
+
+  // Sju middagar: tre kategorier två gånger, den fjärde en gång (roterar mellan veckor)
+  function skapaMatsedel(v, extra) {
+    var r = slump(v.ar * 100 + v.vecka + extra * 7919);
+    var kat = ['kyckling', 'fisk', 'kott', 'vego'];
+    var en = kat[(v.vecka + extra) % 4];
+    var ovr = blanda(kat.filter(function (k) { return k !== en; }), r);
+    var ordning = [ovr[0], ovr[1], ovr[2], en, ovr[0], ovr[1], ovr[2]];
+    // Undvik helst rätter från förra veckan
+    var forra = lasa(veckoNyckel(veckaFor(plusDagar(v.mandag, -7))));
+    var forraIds = forra ? forra.r.join(',') : '';
+    var valda = [], tagna = {};
+    for (var i = 0; i < 7; i++) {
+      var kandidater = blanda(RECEPT.filter(function (x) { return x.kat === ordning[i] && !x.egen && !tagna[x.id]; }), r);
+      kandidater.sort(function (x, y) {
+        return (forraIds.indexOf(x.id) >= 0 ? 1 : 0) - (forraIds.indexOf(y.id) >= 0 ? 1 : 0);
+      });
+      valda.push(kandidater[0].id);
+      tagna[kandidater[0].id] = true;
+    }
+    return { r: valda, ute: [], bock: {}, egna: [], extra: extra };
+  }
+
+  // ---- Tillstånd ----
+  var idag = new Date();
+  var aktuell = veckaFor(idag);
+  var vy = 'vecka', valdDag = 0, kopieraText = null;
+  var valjFran = 'recept'; // vyn man kom från till "Välj", dit man går tillbaka
+  var data;
+
+  function laddaVecka() {
+    data = lasa(veckoNyckel(aktuell));
+    if (!data || !data.r || data.r.length !== 7) {
+      data = skapaMatsedel(aktuell, 0);
+      spara(veckoNyckel(aktuell), data);
+    }
+    if (!data.ute) data.ute = [];
+    if (!data.bock) data.bock = {};
+    if (!data.egna) data.egna = [];
+    sparaOversikt();
+  }
+  function sparaVecka() { spara(veckoNyckel(aktuell), data); sparaOversikt(); }
+
+  // Kort sammanfattning av veckan som Hemstationens startsida läser (samma localStorage).
+  function sparaOversikt() {
+    var dagar = [], kvar = 0, perAvd = byggLista(), i;
+    for (var d = 0; d < 7; d++) {
+      var rec = receptMedId[data.r[d]];
+      if (!rec) continue;
+      var bild = rec.bild ? { url: rec.bild } : BILDER[rec.id];
+      dagar.push({ namn: rec.namn, kat: rec.kat, tid: rec.tid, ute: arUte(d), bild: bild ? bild.url : '' });
+    }
+    for (var avd in perAvd) {
+      if (avd === 'bas') continue;
+      for (i = 0; i < perAvd[avd].length; i++) if (!data.bock[perAvd[avd][i].nyckel]) kvar++;
+    }
+    for (i = 0; i < data.egna.length; i++) if (!data.bock['e:' + data.egna[i]]) kvar++;
+    spara('matsedel-oversikt:' + aktuell.ar + '-v' + aktuell.vecka, { dagar: dagar, kvar: kvar });
+  }
+  function arUte(dag) { return data.ute.indexOf(dag) >= 0; }
+
+  // ---- Inköpslista ----
+  function byggLista() {
+    var poster = {}, ordning = [];
+    for (var d = 0; d < 7; d++) {
+      if (arUte(d)) continue;
+      var rec = receptMedId[data.r[d]];
+      if (!rec) continue;
+      for (var i = 0; i < rec.ing.length; i++) {
+        var ing = rec.ing[i];
+        var nyckel = ing[2] + '|' + ing[1];
+        if (!poster[nyckel]) {
+          poster[nyckel] = { nyckel: nyckel, namn: ing[2], enhet: ing[1], mangd: 0, till: [],
+            avd: avdelningFor[ing[2]] || 'ovrigt' };
+          ordning.push(nyckel);
+        }
+        poster[nyckel].mangd += ing[0];
+        var kort = DAGAR[d].substring(0, 3).toLowerCase();
+        if (poster[nyckel].till.indexOf(kort) < 0) poster[nyckel].till.push(kort);
+      }
+    }
+    var perAvd = {};
+    for (i = 0; i < ordning.length; i++) {
+      var p = poster[ordning[i]];
+      (perAvd[p.avd] = perAvd[p.avd] || []).push(p);
+    }
+    for (a in perAvd) { perAvd[a].sort(function (x, y) { return x.namn.localeCompare(y.namn, 'sv'); }); }
+    return perAvd;
+  }
+  function postMangd(p) {
+    if (!p.mangd) return '';
+    var e = enhetText(p.enhet, p.mangd);
+    if (p.enhet === 'g' && p.mangd >= 1000) return mangdText(p.mangd / 1000) + ' kg';
+    return mangdText(p.mangd) + (e ? ' ' + e : (p.enhet === 'st' ? ' st' : ''));
+  }
+  function listText() {
+    var perAvd = byggLista(), rader = ['Inköpslista vecka ' + aktuell.vecka];
+    if (data.egna.length) {
+      var egna = [];
+      for (var i = 0; i < data.egna.length; i++) { if (!data.bock['e:' + data.egna[i]]) egna.push('- ' + data.egna[i]); }
+      if (egna.length) rader.push('', 'Egna varor'), rader.push.apply(rader, egna);
+    }
+    for (var j = 0; j < AVDELNINGAR.length; j++) {
+      var avd = AVDELNINGAR[j][0];
+      if (avd === 'bas' || !perAvd[avd]) continue;
+      var r = [];
+      for (i = 0; i < perAvd[avd].length; i++) {
+        var p = perAvd[avd][i];
+        if (data.bock[p.nyckel]) continue;
+        var m = postMangd(p);
+        r.push('- ' + p.namn + (m ? ', ' + m : ''));
+      }
+      if (r.length) { rader.push('', AVDELNINGAR[j][1]); rader.push.apply(rader, r); }
+    }
+    return rader.join('\n');
+  }
+
+  // ---- Visning ----
+  function rubrik() {
+    var son = plusDagar(aktuell.mandag, 6), m = aktuell.mandag;
+    var datum = m.getMonth() === son.getMonth()
+      ? m.getDate() + '–' + son.getDate() + ' ' + MANADER[son.getMonth()]
+      : m.getDate() + ' ' + MANADER[m.getMonth()] + ' – ' + son.getDate() + ' ' + MANADER[son.getMonth()];
+    var denna = veckaFor(idag);
+    var arDenna = denna.ar === aktuell.ar && denna.vecka === aktuell.vecka;
+    return '<div class="row head">' +
+      '<div class="grow"><h1>Matsedel vecka ' + aktuell.vecka + '</h1><div class="sub">' + datum +
+      (arDenna ? ' · denna vecka' : '') + '</div></div>' +
+      (arDenna ? '' : '<div class="today" data-a="idag">Denna vecka</div>') +
+      '<div class="nav" data-a="forra">‹</div><div class="nav" data-a="nasta">›</div></div>' +
+      '<div class="row tabs">' +
+      '<div class="tab' + (vy === 'lista' ? '' : ' on') + '" data-a="vy-vecka">Veckans middagar</div>' +
+      '<div class="tab' + (vy === 'lista' ? ' on' : '') + '" data-a="vy-lista">Inköpslista</div></div>';
+  }
+
+  function visaVecka() {
+    var denna = veckaFor(idag);
+    var idagIndex = (denna.ar === aktuell.ar && denna.vecka === aktuell.vecka) ? (idag.getDay() + 6) % 7 : -1;
+    var h = '';
+    for (var d = 0; d < 7; d++) {
+      var rec = receptMedId[data.r[d]], dt = plusDagar(aktuell.mandag, d), ute = arUte(d);
+      h += '<div class="card day row k-' + rec.kat + (d === idagIndex ? ' idag' : '') + (ute ? ' ute' : '') + '">' +
+        '<div class="dname" data-a="recept" data-d="' + d + '"><b>' + DAGAR[d] + '</b><span>' + dt.getDate() + ' ' +
+        MANADER[dt.getMonth()].substring(0, 3) + '</span></div>' +
+        '<div class="grow" data-a="recept" data-d="' + d + '"><div class="dish">' + esc(rec.namn) + '</div>' +
+        '<div class="meta"><span class="chip c-' + rec.kat + '">' + KATEGORIER[rec.kat] + '</span>' +
+        rec.tid + ' min · 4 port.' + (ute ? ' · ej i inköpslistan' : '') + '</div></div>' +
+        '<div class="btn' + (ute ? ' av' : '') + '" data-a="ute" data-d="' + d + '">' + (ute ? 'Hoppa över' : '🛒') + '</div>' +
+        '<div class="btn" data-a="byt" data-d="' + d + '">↻ Slumpa</div>' +
+        '<div class="btn" data-a="valj" data-d="' + d + '">Byt</div></div>';
+    }
+    h += '<div class="tools"><span class="btn" data-a="ny">Ny matsedel för veckan</span></div>' +
+      '<div class="hint">Tryck på en middag för recept. ↻ Slumpa tar en annan rätt av samma sort. ' +
+      'Byt öppnar biblioteket med alla rätter, även egna recept, så att du kan välja vilken som helst. 🛒 tar bort dagen från inköpslistan (t.ex. om ni äter ute).</div>';
+    return h;
+  }
+
+  function visaRecept() {
+    var rec = receptMedId[data.r[valdDag]];
+    var ing = '';
+    for (var i = 0; i < rec.ing.length; i++) {
+      var t = ingrediensText(rec.ing[i]);
+      ing += '<li>' + esc(t) + '</li>';
+    }
+    var steg = '';
+    for (i = 0; i < rec.steg.length; i++) steg += '<li>' + esc(rec.steg[i]) + '</li>';
+    var bild = rec.bild ? { url: rec.bild } : BILDER[rec.id];
+    var foto = bild ? '<div class="foto"><img src="' + esc(bild.url) + '" alt="" ' +
+      'onerror="this.parentNode.style.display=\'none\'">' +
+      (bild.foto ? '<div class="kalla">Foto: ' + esc(bild.foto) + ' · ' + esc(bild.lic) + ' · Wikimedia Commons</div>' : '') +
+      '</div>' : '';
+    return '<div class="rec"><div class="row">' +
+      '<span class="btn" data-a="vy-vecka" style="margin-left:0">‹ Veckan</span><div class="grow"></div>' +
+      '<span class="btn" data-a="byt" data-d="' + valdDag + '">↻ Slumpa</span>' +
+      '<span class="btn" data-a="valj">Byt</span></div>' +
+      '<div class="meta" style="margin-top:18px"><span class="chip c-' + rec.kat + '">' + KATEGORIER[rec.kat] + '</span>' +
+      DAGAR[valdDag] + ' · ' + rec.tid + ' min · 4 portioner' +
+      (rec.kalla ? ' · eget recept från ' + esc(rec.kalla) : '') + '</div>' +
+      '<h2>' + esc(rec.namn) + '</h2>' +
+      '<div class="row cols"><div class="vanster">' + foto +
+      '<div class="card ing"><h3>Ingredienser</h3><ul>' + ing + '</ul></div></div>' +
+      '<div class="card steps grow"><h3>Gör så här</h3><ol>' + steg + '</ol></div></div></div>';
+  }
+
+  function visaValj() {
+    var tillbaka = valjFran === 'vecka' ? 'data-a="vy-vecka"' : 'data-a="recept" data-d="' + valdDag + '"';
+    var h = '<div class="row"><span class="btn" ' + tillbaka + ' style="margin-left:0">‹ Tillbaka</span>' +
+      '<div class="grow muted" style="margin-left:14px;font-size:17px">Biblioteket · tryck på en rätt för att lägga den på ' + DAGAR[valdDag].toLowerCase() + '</div></div>';
+    var kat = ['kyckling', 'fisk', 'kott', 'vego'];
+    h += '<div class="hopp">';
+    for (var k = 0; k < kat.length; k++) {
+      h += '<span class="btn" data-a="hoppa" data-k="' + kat[k] + '">' + ikon(kat[k]) + KATEGORIER[kat[k]] + '</span>';
+    }
+    h += '</div>';
+    for (k = 0; k < kat.length; k++) {
+      var antal = RECEPT.filter(function (x) { return x.kat === kat[k]; }).length;
+      h += '<div class="grp row" id="grp-' + kat[k] + '">' + ikon(kat[k]) +
+        '<b class="i-' + kat[k] + '" style="background:none">' + KATEGORIER[kat[k]] + '</b>' +
+        '<span>' + antal + ' rätter</span></div>';
+      for (var i = 0; i < RECEPT.length; i++) {
+        var rec = RECEPT[i];
+        if (rec.kat !== kat[k]) continue;
+        var dag = data.r.indexOf(rec.id);
+        h += '<div class="card pick row k-' + rec.kat + (dag === valdDag ? ' vald' : '') + '" data-a="satt" data-id="' + rec.id +
+          '" style="border-left-width:6px;border-left-style:solid"><div class="grow">' + esc(rec.namn) +
+          (rec.egen ? ' <span class="eget">Eget</span>' : '') + '</div>' +
+          '<span class="muted" style="font-size:15px">' + (dag >= 0 && dag !== valdDag ? DAGAR[dag] + ' · ' : '') +
+          rec.tid + ' min</span></div>';
+      }
+    }
+    return h;
+  }
+
+  function postRad(nyckel, namn, mangd, till, kanTaBort) {
+    var klar = !!data.bock[nyckel];
+    return '<div class="item row' + (klar ? ' klar' : '') + '" data-a="bock" data-k="' + esc(nyckel) + '">' +
+      '<div class="box">' + (klar ? '✓' : '') + '</div>' +
+      '<div class="grow"><div class="iname">' + esc(namn) + '</div>' +
+      (till ? '<div class="ifor">' + esc(till) + '</div>' : '') + '</div>' +
+      (mangd ? '<div class="iamt">' + esc(mangd) + '</div>' : '') +
+      (kanTaBort ? '<div class="del" data-a="tabort" data-k="' + esc(namn) + '">✕</div>' : '') + '</div>';
+  }
+
+  function visaLista() {
+    var perAvd = byggLista();
+    var h = '<div class="card add row"><input id="egen" type="text" placeholder="Lägg till egen vara, t.ex. mjölk eller kaffe">' +
+      '<span class="btn gron" data-a="lagg">Lägg till</span></div>';
+    if (data.egna.length) {
+      h += '<div class="card sect"><h3>Egna varor</h3>';
+      for (var i = 0; i < data.egna.length; i++) h += postRad('e:' + data.egna[i], data.egna[i], '', '', true);
+      h += '</div>';
+    }
+    for (var j = 0; j < AVDELNINGAR.length; j++) {
+      var avd = AVDELNINGAR[j][0], poster = perAvd[avd];
+      if (!poster) continue;
+      h += '<div class="card sect"' + (avd === 'bas' ? ' style="opacity:0.75"' : '') + '><h3>' + AVDELNINGAR[j][1] + '</h3>';
+      for (i = 0; i < poster.length; i++) {
+        var p = poster[i];
+        h += postRad(p.nyckel, p.namn, postMangd(p), avd === 'bas' ? '' : p.till.join(', '), false);
+      }
+      h += '</div>';
+    }
+    var antalUte = data.ute.length;
+    h += '<div class="tools"><span class="btn gron" data-a="dela">' + (navigator.share ? 'Dela listan' : 'Kopiera listan') + '</span>' +
+      '<span class="btn" data-a="nollstall">Avbocka alla</span></div>';
+    if (kopieraText !== null) {
+      h += '<textarea class="copy" id="kopia" readonly>' + esc(kopieraText) + '</textarea>' +
+        '<div class="hint">Markera texten och välj Kopiera om den inte redan kopierats.</div>';
+    }
+    h += '<div class="hint">Listan räknas ihop från veckans middagar' +
+      (antalUte ? ' (utom ' + antalUte + ' dag' + (antalUte > 1 ? 'ar' : '') + ' som hoppas över)' : '') +
+      '. Tryck på en vara för att bocka av den. Dela skickar bara det som inte är bockat, utan det som brukar finnas hemma.</div>';
+    return h;
+  }
+
+  function visa() {
+    var h = rubrik();
+    if (vy === 'recept') h = visaRecept();
+    else if (vy === 'valj') h = visaValj();
+    else if (vy === 'lista') h += visaLista();
+    else h += visaVecka();
+    document.getElementById('app').innerHTML = h;
+  }
+
+  // ---- Händelser ----
+  function bytRatt(d) {
+    var nu = receptMedId[data.r[d]];
+    var andra = RECEPT.filter(function (x) { return x.kat === nu.kat && !x.egen && data.r.indexOf(x.id) < 0; });
+    if (!andra.length) return;
+    data.r[d] = andra[Math.floor(Math.random() * andra.length)].id;
+    sparaVecka();
+  }
+  function laggTill() {
+    var f = document.getElementById('egen');
+    var t = f ? f.value.replace(/^\s+|\s+$/g, '') : '';
+    if (!t || data.egna.indexOf(t) >= 0) return;
+    data.egna.push(t);
+    sparaVecka();
+    visa();
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    while (el && el !== document && !el.getAttribute('data-a')) el = el.parentNode;
+    if (!el || el === document) return;
+    var a = el.getAttribute('data-a'), d = parseInt(el.getAttribute('data-d'), 10);
+    if (a !== 'dela') kopieraText = null;
+
+    if (a === 'vy-vecka') { vy = 'vecka'; }
+    else if (a === 'vy-lista') { vy = 'lista'; }
+    else if (a === 'forra' || a === 'nasta' || a === 'idag') {
+      aktuell = a === 'idag' ? veckaFor(idag) : veckaFor(plusDagar(aktuell.mandag, a === 'forra' ? -7 : 7));
+      laddaVecka();
+    }
+    else if (a === 'recept') { valdDag = d; vy = 'recept'; }
+    else if (a === 'valj') {
+      valjFran = isNaN(d) ? 'recept' : 'vecka';
+      if (!isNaN(d)) valdDag = d;
+      vy = 'valj';
+    }
+    else if (a === 'satt') {
+      var id = el.getAttribute('data-id'), annan = data.r.indexOf(id);
+      if (annan >= 0 && annan !== valdDag) data.r[annan] = data.r[valdDag]; // byt plats
+      data.r[valdDag] = id;
+      sparaVecka();
+      vy = valjFran === 'vecka' ? 'vecka' : 'recept';
+    }
+    else if (a === 'byt') { bytRatt(d); }
+    else if (a === 'ute') {
+      var i = data.ute.indexOf(d);
+      if (i >= 0) data.ute.splice(i, 1); else data.ute.push(d);
+      sparaVecka();
+    }
+    else if (a === 'ny') {
+      if (!window.confirm('Göra en helt ny matsedel för vecka ' + aktuell.vecka + '?')) return;
+      var gammal = data;
+      data = skapaMatsedel(aktuell, (gammal.extra || 0) + 1);
+      data.egna = gammal.egna;
+      sparaVecka();
+    }
+    else if (a === 'bock') {
+      var k = el.getAttribute('data-k');
+      if (data.bock[k]) delete data.bock[k]; else data.bock[k] = true;
+      sparaVecka();
+    }
+    else if (a === 'tabort') {
+      var n = el.getAttribute('data-k');
+      data.egna.splice(data.egna.indexOf(n), 1);
+      delete data.bock['e:' + n];
+      sparaVecka();
+      e.stopPropagation();
+    }
+    else if (a === 'lagg') { laggTill(); return; }
+    else if (a === 'hoppa') {
+      var mal = document.getElementById('grp-' + el.getAttribute('data-k'));
+      if (mal) window.scrollTo(0, mal.getBoundingClientRect().top + window.pageYOffset - 12);
+      return;
+    }
+    else if (a === 'nollstall') { data.bock = {}; sparaVecka(); }
+    else if (a === 'dela') {
+      var text = listText();
+      if (navigator.share) {
+        navigator.share({ title: 'Inköpslista vecka ' + aktuell.vecka, text: text })['catch'](function () {});
+        return;
+      }
+      kopieraText = text;
+      visa();
+      var ta = document.getElementById('kopia');
+      try { ta.focus(); ta.setSelectionRange(0, text.length); document.execCommand('copy'); } catch (err) {}
+      return;
+    }
+    visa();
+    if (a === 'recept' || a === 'valj' || a === 'satt' || a === 'vy-vecka' || a === 'vy-lista') window.scrollTo(0, 0);
+  }, false);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.target && e.target.id === 'egen' && e.keyCode === 13) laggTill();
+  }, false);
+
+  // Byt automatiskt till ny vecka/dag om sidan står uppe länge
+  setInterval(function () {
+    var nu = new Date();
+    if (nu.getDate() !== idag.getDate()) {
+      var foreVecka = veckaFor(idag), nyVecka = veckaFor(nu);
+      var foljde = foreVecka.vecka === aktuell.vecka && foreVecka.ar === aktuell.ar;
+      idag = nu;
+      if (foljde && vy !== 'recept' && vy !== 'valj') { aktuell = nyVecka; laddaVecka(); }
+      if (vy !== 'recept' && vy !== 'valj' && !(document.activeElement && document.activeElement.id === 'egen')) visa();
+    }
+  }, 60000);
+
+  laddaVecka();
+  // ?dag=0–6 öppnar receptet för den dagen (används av Hemstationen)
+  var startDag = /[?&]dag=(\d)/.exec(location.search);
+  if (startDag && +startDag[1] < 7) { valdDag = +startDag[1]; vy = 'recept'; }
+  visa();
+})();
+</script>
+<script>
+// Hemstationen: öppnas sidan från startsidan (?hem=adress) visas en Hem-knapp.
+(function () {
+  var m = /[?&]hem=([^&]*)/.exec(location.search);
+  if (!m) return;
+  var hem = decodeURIComponent(m[1]);
+  if (!/^https?:\/\//.test(hem)) return;
+  var a = document.createElement('a');
+  a.href = hem;
+  a.innerHTML = '&#8962; Hem';
+  a.setAttribute('style', 'position:absolute;top:8px;left:50%;width:96px;margin-left:-48px;z-index:60;' +
+    'height:36px;line-height:36px;border-radius:18px;background:#21262d;color:#e6edf3;text-align:center;' +
+    'font-size:17px;text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.4)');
+  document.body.appendChild(a);
+})();
+</script>
+</body>
+</html>

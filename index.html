@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hem">
+<title>Hemstation</title>
+<!--
+  Startsida för gammal iPad mini (iOS 12) som samlar Väder, Musik, Avgångar och Matsedel.
+  Skriven i ES5 utan moderna JS-funktioner, samma stil som de fyra sidorna.
+  Varje ruta visar en sammanfattning; tryck på den för att öppna hela sidan.
+  Sidorna får då en Hem-knapp (?hem=...) och går tillbaka hit efter 10 minuter utan tryck
+  (utom Matsedeln, så att receptet ligger kvar medan man lagar mat).
+  De fyra sidorna fungerar fortfarande var för sig.
+
+  Var sidorna ligger anges i APPAR nedan, relativt den här sidan.
+  Startsidan måste ligga på samma webbadress (värd) som Busstationen och Matsedeln, eftersom den läser
+  Västtrafik-nyckeln och veckans matsedel från deras localStorage. På GitHub Pages delar alla
+  repon under samma konto adress (namn.github.io), så det går bra med ett repo per sida.
+  Musikrutan visar vad som spelas på Macen som en bild från musikserver.py (/api/nu.svg),
+  eftersom en https-sida bara får hämta bilder, inte data, från Macen.
+-->
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+  }
+  .wrap { box-sizing: border-box; height: 100%; padding: 16px 22px 20px;
+    display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column; }
+  .row { display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+  .col { display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column; }
+  .grow { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-width: 0; min-height: 0; }
+  .muted { color: #8b949e; }
+  .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .top { -webkit-box-align: end; -webkit-align-items: flex-end; align-items: flex-end; margin: 0 4px 14px; }
+  .clock { font-size: 64px; font-weight: 200; line-height: 1; letter-spacing: -1px; }
+  .date { font-size: 24px; margin-left: 20px; padding-bottom: 6px; }
+
+  .gridrow { -webkit-box-align: stretch; -webkit-align-items: stretch; align-items: stretch; }
+  .gridrow + .gridrow { margin-top: 16px; }
+  .w { position: relative; box-sizing: border-box; background: #161b22; border-radius: 18px;
+    padding: 14px 20px 14px; overflow: hidden; cursor: pointer; }
+  .w + .w { margin-left: 16px; }
+  .w:active { background: #1c2129; }
+  .w h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: #8b949e; }
+  .w h2 b { color: #e6edf3; font-weight: 600; }
+  .w .hr { font-size: 14px; color: #8b949e; text-align: right; white-space: nowrap; }
+  .pil { position: absolute; right: 14px; bottom: 10px; font-size: 22px; color: #484f58; }
+  .tom { font-size: 18px; color: #8b949e; margin-top: 14px; line-height: 1.45; }
+
+  /* Väder */
+  .now { margin-top: 6px; }
+  .now-icon { font-size: 58px; line-height: 1; width: 76px; }
+  .now-temp { font-size: 72px; font-weight: 200; line-height: 1; margin: 0 16px 0 4px; }
+  .now-text { font-size: 20px; line-height: 1.35; }
+  .now-text .muted { font-size: 16px; }
+  .tiles { margin-top: 10px; }
+  .tile { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; text-align: center; background: #0d1117;
+    border-radius: 12px; padding: 5px 2px; margin-right: 8px; }
+  .tile:last-child { margin-right: 0; }
+  .tile .t { font-size: 14px; color: #8b949e; }
+  .tile .i { font-size: 24px; margin: 1px 0; }
+  .tile .v { font-size: 18px; }
+  .tile .s { font-size: 12px; color: #8b949e; }
+  .rain { color: #58a6ff !important; }
+  .dagar { margin-top: 10px; -webkit-box-align: start; -webkit-align-items: flex-start; align-items: flex-start; }
+  .dg { font-size: 18px; line-height: 1.35; white-space: nowrap; overflow: hidden; }
+  .dg .muted { font-size: 14px; }
+  .vfot { font-size: 16px; line-height: 1.4; }
+  .chip { display: inline-block; background: #0d1117; border-radius: 14px; padding: 3px 10px 3px 8px;
+    margin: 6px 6px 0 0; font-size: 15px; white-space: nowrap; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 6px; }
+  .varning { display: block; border-radius: 10px; padding: 6px 10px; margin-top: 8px; font-size: 16px; font-weight: 500; }
+
+  /* Avgångar */
+  .stop { margin-top: 8px; font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #8b949e; }
+  .dep { height: 36px; border-top: 1px solid #21262d; }
+  .dep.muted { height: auto; padding: 6px 0; }
+  .stop + .dep { border-top: 0; }
+  .badge { min-width: 42px; height: 32px; line-height: 32px; border-radius: 7px; padding: 0 5px;
+    box-sizing: border-box; text-align: center; font-size: 19px; font-weight: 700; margin-right: 12px; }
+  .dest { font-size: 19px; }
+  .next { font-size: 21px; font-weight: 500; width: 78px; text-align: right; white-space: nowrap; }
+  .then { font-size: 16px; color: #8b949e; width: 62px; text-align: right; white-space: nowrap; }
+  .soon { color: #3fb950; }
+  .cancel { color: #f85149; text-decoration: line-through; }
+  .plan { font-style: italic; }
+
+  /* Musik */
+  .lage { display: inline-block; font-size: 13px; padding: 3px 10px; border-radius: 12px; background: #0d1117; }
+  .lage.mac { background: #12361f; color: #7ee2a8; }
+  .nu-bild { margin-top: 12px; }
+  .nu-bild img { display: block; width: 100%; max-width: 480px; height: auto; }
+  .knappar { margin-top: 14px; }
+  .knapp { display: inline-block; min-width: 64px; height: 50px; line-height: 50px; text-align: center;
+    border-radius: 25px; background: #21262d; color: #e6edf3; font-size: 20px; margin-right: 10px; cursor: pointer; }
+  .knapp:active { background: #30363d; }
+  .knapp.stor { min-width: 80px; background: #e6edf3; color: #0d1117; }
+  .not { font-size: 54px; width: 80px; height: 80px; line-height: 80px; text-align: center; border-radius: 16px;
+    background: #0d1117; margin-right: 18px; color: #58a6ff; }
+
+  /* Matsedel */
+  .idag { margin-top: 10px; }
+  .foto { width: 112px; height: 112px; border-radius: 12px; background: #0d1117 center / cover no-repeat;
+    margin-right: 16px; -webkit-flex-shrink: 0; flex-shrink: 0; }
+  .idag .dag { font-size: 14px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; }
+  .idag .ratt { font-size: 22px; font-weight: 500; line-height: 1.25; margin: 3px 0 6px;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+  .kat { display: inline-block; font-size: 13px; font-weight: 600; color: #0d1117; border-radius: 9px;
+    padding: 1px 8px; margin-right: 8px; }
+  .meta { font-size: 15px; color: #8b949e; }
+  .c-kyckling { background: #d29922; } .c-fisk { background: #58a6ff; }
+  .c-kott { background: #f85149; } .c-vego { background: #3fb950; }
+  .kommande { margin-top: 10px; }
+  .kd { padding: 6px 0; border-top: 1px solid #21262d; font-size: 17px; }
+  .kd b { display: inline-block; width: 44px; font-weight: 500; color: #8b949e; }
+  .kd .dot { margin-right: 10px; }
+  .ute { color: #6e7681; }
+
+  /* Stående iPad: smalare rutor */
+  @media (orientation: portrait) {
+    .now-icon { font-size: 44px; width: 54px; }
+    .now-temp { font-size: 56px; margin: 0 10px 0 2px; }
+    .now-text { font-size: 18px; }
+    .dg:nth-child(4) { display: none; }
+    .tile .s { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row top">
+    <div class="clock" id="clock">--:--</div>
+    <div class="date muted grow" id="date"></div>
+  </div>
+  <div class="row gridrow grow">
+    <div class="w grow col" data-app="vader" id="w-vader"><h2>Väder</h2><div class="tom">Hämtar prognos…</div></div>
+    <div class="w grow col" data-app="musik" id="w-musik"><h2>Musik</h2><div class="tom">Letar efter Macen…</div></div>
+  </div>
+  <div class="row gridrow grow">
+    <div class="w grow col" data-app="buss" id="w-buss"><h2>Avgångar</h2><div class="tom">Hämtar…</div></div>
+    <div class="w grow col" data-app="mat" id="w-mat"><h2>Matsedel</h2><div class="tom">Hämtar…</div></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ---- Inställningar ----
+  // Sidornas adresser relativt startsidan (här i iCloud-mapparna).
+  // bygg-github.sh skriver om dem till vader/, musik/, buss/ och matsedel/ i repot.
+  var APPAR = {
+    vader: 'vader/index.html',
+    musik: 'musik/index.html',
+    buss:  'buss/index.html',
+    mat:   'matsedel/index.html'
+  };
+  var PLATS = { lat: 57.71, lon: 11.97, namn: 'Göteborg' };   // samma som Väderstationen
+  var MAC = 'http://MacBook-Pro-som-tillhor-Helena.local:8817';
+  var TAVLOR = [
+    { namn: 'Nordviksgatan', typ: 'Buss',     gid: '9021014005012000', trafikslag: 'bus' },
+    { namn: 'Lindholmen',    typ: 'Spårvagn', gid: '9021014004490000', trafikslag: 'tram' }
+  ];
+
+  var DAGAR = ['söndag', 'måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag'];
+  var MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli',
+                 'augusti', 'september', 'oktober', 'november', 'december'];
+  var HEM = location.href.split('#')[0].split('?')[0];
+
+  function $(id) { return document.getElementById(id); }
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function hm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function deg(t) { return Math.round(t) + '°'; }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function dayKey(d) { return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function lasa(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+  function lasaText(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+  function request(method, url, headers, body, ok, fail) {
+    var xhr = new XMLHttpRequest();
+    xhr.open(method, url, true);
+    xhr.timeout = 20000;
+    for (var h in headers) xhr.setRequestHeader(h, headers[h]);
+    xhr.onload = function () {
+      if (xhr.status !== 200) return fail(xhr.status);
+      try { ok(JSON.parse(xhr.responseText)); } catch (e) { fail(0); }
+    };
+    xhr.onerror = xhr.ontimeout = function () { fail(0); };
+    xhr.send(body);
+  }
+  function getJSON(url, ok, fail) { request('GET', url, {}, null, ok, fail || function () {}); }
+
+  function ruta(id, rubrik, hoger, innehall) {
+    $(id).innerHTML = '<div class="row"><h2 class="grow">' + rubrik + '</h2>' +
+      (hoger ? '<div class="hr">' + hoger + '</div>' : '') + '</div>' + innehall;
+  }
+
+  // ---- Klocka ----
+  function tickClock() {
+    var d = new Date();
+    $('clock').innerHTML = hm(d);
+    $('date').innerHTML = cap(DAGAR[d.getDay()]) + ' ' + d.getDate() + ' ' + MANADER[d.getMonth()];
+  }
+
+  // ================= Väder (SMHI) =================
+  var SYMBOLS = {
+    1: ['☀️', 'Klart'], 2: ['🌤', 'Nästan klart'], 3: ['⛅️', 'Växlande molnighet'],
+    4: ['⛅️', 'Halvklart'], 5: ['🌥', 'Molnigt'], 6: ['☁️', 'Mulet'], 7: ['🌫', 'Dimma'],
+    8: ['🌦', 'Lätta regnskurar'], 9: ['🌦', 'Regnskurar'], 10: ['🌧', 'Kraftiga regnskurar'],
+    11: ['⛈', 'Åskskurar'], 12: ['🌨', 'Lätta byar av snöblandat regn'],
+    13: ['🌨', 'Byar av snöblandat regn'], 14: ['🌨', 'Kraftiga byar av snöblandat regn'],
+    15: ['🌨', 'Lätta snöbyar'], 16: ['🌨', 'Snöbyar'], 17: ['❄️', 'Kraftiga snöbyar'],
+    18: ['🌧', 'Lätt regn'], 19: ['🌧', 'Regn'], 20: ['🌧', 'Kraftigt regn'], 21: ['⛈', 'Åska'],
+    22: ['🌨', 'Lätt snöblandat regn'], 23: ['🌨', 'Snöblandat regn'],
+    24: ['🌨', 'Kraftigt snöblandat regn'], 25: ['🌨', 'Lätt snöfall'], 26: ['❄️', 'Snöfall'],
+    27: ['❄️', 'Kraftigt snöfall']
+  };
+  var DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SV', 'V', 'NV'];
+  function sym(code, hour) {
+    var s = SYMBOLS[code] || ['', ''];
+    if ((hour < 6 || hour >= 20) && (code === 1 || code === 2)) return ['🌙', s[1]];
+    return s;
+  }
+  function parseTime(s) {
+    var p = s.match(/(\d+)-(\d+)-(\d+)T(\d+):(\d+)/);
+    return new Date(Date.UTC(+p[1], +p[2] - 1, +p[3], +p[4], +p[5]));
+  }
+
+  var vader = { series: null, fel: false, uppdaterad: null, pollen: null, varning: null };
+
+  function laddaVader() {
+    getJSON('https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1/geotype/point/lon/' +
+      PLATS.lon.toFixed(4) + '/lat/' + PLATS.lat.toFixed(4) + '/data.json', function (json) {
+      var now = new Date(), series = [];
+      for (var i = 0; i < json.timeSeries.length; i++) {
+        var t = parseTime(json.timeSeries[i].time);
+        if (t.getTime() > now.getTime() - 3600000) series.push({ t: t, d: json.timeSeries[i].data });
+      }
+      vader.series = series.length ? series : null;
+      vader.fel = !series.length;
+      vader.uppdaterad = now;
+      ritaVader();
+    }, function () { vader.fel = true; ritaVader(); setTimeout(laddaVader, 5 * 60000); });
+  }
+
+  function ritaVader() {
+    var s = vader.series;
+    if (!s) {
+      ruta('w-vader', 'Väder · <b>' + esc(PLATS.namn) + '</b>', '',
+        '<div class="tom">' + (vader.fel ? 'Kunde inte nå SMHI – försöker igen om en stund.' : 'Hämtar prognos…') + '</div>');
+      return;
+    }
+    var now = new Date(), c = s[0].d, ns = sym(c.symbol_code, s[0].t.getHours());
+    // Resten av dagen: högsta och lägsta
+    var idag = dayKey(now), hi = -99, lo = 99, i;
+    for (i = 0; i < s.length; i++) {
+      if (dayKey(s[i].t) !== idag) break;
+      if (s[i].d.air_temperature > hi) hi = s[i].d.air_temperature;
+      if (s[i].d.air_temperature < lo) lo = s[i].d.air_temperature;
+    }
+    var h = '<div class="row now"><div class="now-icon">' + ns[0] + '</div><div class="now-temp">' + deg(c.air_temperature) + '</div>' +
+      '<div class="now-text grow"><div class="ell">' + ns[1] + '</div>' +
+      '<div class="muted ell">Vind ' + Math.round(c.wind_speed) + ' m/s ' + DIRS[Math.round(c.wind_from_direction / 45) % 8] +
+      ' (byar ' + Math.round(c.wind_speed_of_gust) + ')</div>' +
+      (hi > -99 && i > 1 ? '<div class="muted">Resten av dagen ' + deg(lo) + ' – ' + deg(hi) + '</div>' : '') + '</div></div>';
+
+    // Kommande timmar: var 2:a timme, 6 rutor
+    h += '<div class="row tiles">';
+    for (var k = 1, n = 0; k < s.length && n < 6; k += 2, n++) {
+      var e = s[k], es = sym(e.d.symbol_code, e.t.getHours()), mm = e.d.precipitation_amount_mean;
+      h += '<div class="tile"><div class="t">' + pad(e.t.getHours()) + '</div><div class="i">' + es[0] + '</div>' +
+        '<div class="v">' + deg(e.d.air_temperature) + '</div>' +
+        '<div class="s' + (mm > 0 ? ' rain' : '') + '">' + (mm > 0 ? (Math.round(mm * 10) / 10) + ' mm' : Math.round(e.d.wind_speed) + ' m/s') + '</div></div>';
+    }
+    h += '</div>';
+
+    // Kommande dagar: min/max och symbol närmast kl 13
+    var days = {}, order = [];
+    for (i = 0; i < s.length; i++) {
+      var key = dayKey(s[i].t), x = s[i].d, dist = Math.abs(s[i].t.getHours() - 13);
+      if (key === idag) continue;
+      if (!days[key]) { days[key] = { date: s[i].t, min: 99, max: -99, rain: 0, sym: 0, dist: 99 }; order.push(key); }
+      var dd = days[key];
+      if (x.air_temperature < dd.min) dd.min = x.air_temperature;
+      if (x.air_temperature > dd.max) dd.max = x.air_temperature;
+      dd.rain += x.precipitation_amount_mean || 0;
+      if (dist < dd.dist) { dd.dist = dist; dd.sym = x.symbol_code; }
+    }
+    h += '<div class="row dagar">';
+    for (i = 0; i < order.length && i < 4; i++) {
+      var dg = days[order[i]];
+      h += '<div class="dg grow"><div class="muted">' + (i === 0 ? 'I morgon' : cap(DAGAR[dg.date.getDay()].substr(0, 3))) +
+        (dg.rain >= 0.5 ? ' <span class="rain">' + Math.round(dg.rain) + ' mm</span>' : '') + '</div>' +
+        sym(dg.sym, 13)[0] + ' ' + deg(dg.max) + ' <span class="muted">' + deg(dg.min) + '</span></div>';
+    }
+    h += '</div><div class="vfot">';
+    if (vader.varning) {
+      var w = vader.varning;
+      h += '<span class="varning" style="background:' + w.farg + ';color:' + (w.level === 'RED' ? '#fff' : '#1a140c') + '">⚠️ ' +
+        esc(w.levelName) + ' varning: ' + esc(w.event) + '</span>';
+    } else if (vader.pollen && vader.pollen.length) {
+      h += '<div>';
+      for (i = 0; i < vader.pollen.length && i < 3; i++) {
+        h += '<span class="chip"><span class="dot" style="background:' + vader.pollen[i].farg + '"></span>' +
+          esc(vader.pollen[i].namn) + ' <span class="muted">' + esc(vader.pollen[i].niva) + '</span></span>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    ruta('w-vader', 'Väder · <b>' + esc(PLATS.namn) + '</b>', 'SMHI ' + hm(vader.uppdaterad), h);
+  }
+
+  // Varningar som gäller platsen (samma källa som Väderstationen)
+  var WARN_COLOR = { RED: '#f85149', ORANGE: '#f0883e', YELLOW: '#e3b341' };
+  var WARN_ORDER = { RED: 4, ORANGE: 3, YELLOW: 2 };
+  function inRing(ring, x, y) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function inGeometry(g, x, y) {
+    if (!g) return false;
+    if (g.type === 'Polygon') return inRing(g.coordinates[0], x, y);
+    if (g.type === 'MultiPolygon') {
+      for (var i = 0; i < g.coordinates.length; i++) if (inRing(g.coordinates[i][0], x, y)) return true;
+    }
+    return false;
+  }
+  function laddaVarningar() {
+    getJSON('https://opendata-download-warnings.smhi.se/ibww/api/version/1/warning.json', function (list) {
+      var bast = null;
+      for (var i = 0; i < list.length; i++) {
+        var wa = list[i].warningAreas || [];
+        for (var k = 0; k < wa.length; k++) {
+          var a = wa[k], lvl = a.warningLevel && a.warningLevel.code;
+          if (!WARN_COLOR[lvl] || !inGeometry(a.area && a.area.geometry, PLATS.lon, PLATS.lat)) continue;
+          if (!bast || WARN_ORDER[lvl] > WARN_ORDER[bast.level]) {
+            bast = { level: lvl, levelName: a.warningLevel.sv, event: list[i].event.sv, farg: WARN_COLOR[lvl] };
+          }
+        }
+      }
+      vader.varning = bast;
+      ritaVader();
+    });
+  }
+
+  // Pollen från Pollenrapporten.se, närmaste mätstation
+  var POLLEN_API = 'https://api.pollenrapporten.se/v1/';
+  var POLLEN_LEVELS = ['Inga', 'Låga', 'Låga–måttliga', 'Måttliga', 'Måttliga–höga', 'Höga', 'Höga–mycket höga', 'Mycket höga'];
+  var POLLEN_COLORS = ['#3fb950', '#3fb950', '#a5d64c', '#d29922', '#e3842b', '#f0603c', '#f0603c', '#da3633'];
+  var pollenRegion = null, pollenNames = null;
+  function laddaPollen() {
+    if (!pollenRegion) {
+      return getJSON(POLLEN_API + 'regions', function (r) {
+        var best = 1e9, cosLat = Math.cos(PLATS.lat * Math.PI / 180);
+        for (var i = 0; i < r.items.length; i++) {
+          var it = r.items[i];
+          if (!it.latitude) continue;
+          var dy = it.latitude - PLATS.lat, dx = (it.longitude - PLATS.lon) * cosLat, dist = dx * dx + dy * dy;
+          if (dist < best) { best = dist; pollenRegion = it; }
+        }
+        getJSON(POLLEN_API + 'pollen-types', function (t) {
+          pollenNames = {};
+          for (var j = 0; j < t.items.length; j++) pollenNames[t.items[j].id] = t.items[j].name;
+          if (pollenRegion) laddaPollen();
+        });
+      });
+    }
+    getJSON(POLLEN_API + 'forecasts?region_id=' + pollenRegion.id + '&current=true', function (json) {
+      var f = json.items && json.items[0], list = [], out = [], i;
+      if (f && !f.isEndOfSeason && f.levelSeries) {
+        var idag = ymd(new Date());
+        for (i = 0; i < f.levelSeries.length; i++) {
+          var s = f.levelSeries[i];
+          if (s.time.substr(0, 10) === idag && s.level > 0) list.push(s);
+        }
+      }
+      list.sort(function (a, b) { return b.level - a.level; });
+      for (i = 0; i < list.length; i++) {
+        var lv = Math.min(list[i].level, 7);
+        out.push({ namn: pollenNames[list[i].pollenId] || '?', niva: POLLEN_LEVELS[lv], farg: POLLEN_COLORS[lv] });
+      }
+      vader.pollen = out;
+      ritaVader();
+    });
+  }
+
+  // ================= Avgångar (Västtrafik) =================
+  var API = 'https://ext-api.vasttrafik.se/pr/v4/';
+  var TOKEN_URL = 'https://ext-api.vasttrafik.se/token';
+  var token = null, tokenGaller = 0, tokenKo = null;
+  var buss = { data: {}, senast: null, fel: null };
+
+  function nyckel() { return lasaText('vt-nyckel'); }   // sparas av Busstationen
+  function basic() {
+    var k = nyckel().replace(/\s+/g, '');
+    if (k.indexOf(':') > 0) k = btoa(k);
+    return 'Basic ' + k;
+  }
+  function tolkaTid(s) {
+    var m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|([+-])(\d\d):?(\d\d))?$/.exec(s || '');
+    if (!m) return null;
+    var t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    if (m[8]) t -= (m[8] === '-' ? -1 : 1) * (+m[9] * 60 + +m[10]) * 60000;
+    return new Date(t);
+  }
+  function hamtaToken(ok, fail) {
+    if (token && Date.now() < tokenGaller) return ok();
+    if (tokenKo) return tokenKo.push([ok, fail]);
+    tokenKo = [[ok, fail]];
+    function klar(i, arg) {
+      var ko = tokenKo; tokenKo = null;
+      for (var j = 0; j < ko.length; j++) ko[j][i](arg);
+    }
+    request('POST', TOKEN_URL,
+      { 'Authorization': basic(), 'Content-Type': 'application/x-www-form-urlencoded' },
+      'grant_type=client_credentials',
+      function (r) {
+        token = r.access_token;
+        tokenGaller = Date.now() + Math.max(60, (r.expires_in || 3600) - 120) * 1000;
+        klar(0);
+      },
+      function (status) { token = null; klar(1, status === 400 || status === 401 ? 'nyckel' : 'natet'); });
+  }
+  function laddaBuss() {
+    if (!nyckel()) { buss.fel = 'ingen'; return ritaBuss(); }
+    var kvar = TAVLOR.length, fel = null;
+    function klar() {
+      if (--kvar > 0) return;
+      buss.fel = fel;
+      if (!fel) buss.senast = new Date();
+      ritaBuss();
+    }
+    for (var i = 0; i < TAVLOR.length; i++) (function (t) {
+      hamtaToken(function () {
+        request('GET', API + 'stop-areas/' + t.gid + '/departures?timeSpanInMinutes=90&maxDeparturesPerLineAndDirection=2&limit=60',
+          { 'Authorization': 'Bearer ' + token }, null,
+          function (r) { buss.data[t.gid] = r.results || []; klar(); },
+          function (status) { if (status === 401) token = null; fel = fel || 'natet'; klar(); });
+      }, function (orsak) { fel = fel === 'nyckel' ? fel : orsak; klar(); });
+    })(TAVLOR[i]);
+  }
+  function gruppera(list, trafikslag) {
+    var grupper = {}, ordning = [];
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i], sj = a.serviceJourney || {}, line = sj.line || {};
+      if (trafikslag && line.transportMode !== trafikslag) continue;
+      var tid = tolkaTid(a.estimatedOtherwisePlannedTime || a.estimatedTime || a.plannedTime);
+      if (!tid) continue;
+      var k = (line.shortName || line.name) + '|' + sj.direction;
+      if (!grupper[k]) {
+        grupper[k] = { line: line, riktning: sj.direction, details: sj.directionDetails || {}, avg: [] };
+        ordning.push(grupper[k]);
+      }
+      grupper[k].avg.push({ tid: tid, realtid: !!a.estimatedTime, installd: !!a.isCancelled });
+    }
+    for (i = 0; i < ordning.length; i++) ordning[i].avg.sort(function (x, y) { return x.tid - y.tid; });
+    ordning.sort(function (x, y) { return x.avg[0].tid - y.avg[0].tid; });
+    return ordning;
+  }
+  function tidText(a, nu) {
+    var min = Math.floor((a.tid - nu) / 60000);
+    var txt = min <= 0 ? 'Nu' : min < 60 ? min + ' min' : hm(a.tid);
+    var cls = a.installd ? 'cancel' : (min <= 2 ? 'soon' : '') + (a.realtid ? '' : ' plan');
+    return '<span class="' + cls + '">' + txt + '</span>';
+  }
+  function destNamn(g) {
+    var namn = g.details.shortDirection || g.riktning || '';
+    return namn.indexOf(' via ') > 0 ? namn.substring(0, namn.indexOf(' via ')) : namn;
+  }
+  function ritaBuss() {
+    if (buss.fel === 'ingen' || buss.fel === 'nyckel') {
+      ruta('w-buss', 'Avgångar', '', '<div class="tom">' + (buss.fel === 'ingen'
+        ? 'Västtrafik-nyckeln saknas. Tryck här och klistra in den i Busstationen.'
+        : 'Västtrafik godkände inte nyckeln. Tryck här för att byta den.') + '</div>');
+      return;
+    }
+    // Så många rader per hållplats som får plats i rutan (fler när iPaden står upp)
+    var maxRader = Math.max(2, Math.floor(($('w-buss').clientHeight - 28 - 18 - TAVLOR.length * 24) / 37 / TAVLOR.length));
+    var nu = new Date(), h = '';
+    for (var i = 0; i < TAVLOR.length; i++) {
+      var t = TAVLOR[i], list = buss.data[t.gid];
+      h += '<div class="stop">' + esc(t.typ) + ' · ' + esc(t.namn) + '</div>';
+      if (!list) { h += '<div class="dep muted">' + (buss.fel ? 'Kunde inte hämta avgångar.' : 'Hämtar…') + '</div>'; continue; }
+      var g = gruppera(list, t.trafikslag), rader = 0;
+      for (var j = 0; j < g.length && rader < maxRader; j++) {
+        var avg = [];
+        for (var k = 0; k < g[j].avg.length; k++) if (g[j].avg[k].tid - nu > -60000) avg.push(g[j].avg[k]);
+        if (!avg.length) continue;
+        var line = g[j].line;
+        h += '<div class="row dep"><div class="badge" style="background:' + esc(line.backgroundColor || '#30363d') +
+          ';color:' + esc(line.foregroundColor || '#fff') + '">' + esc(line.shortName || line.name) + '</div>' +
+          '<div class="dest grow ell">' + esc(destNamn(g[j])) + '</div>' +
+          '<div class="next">' + tidText(avg[0], nu) + '</div>' +
+          '<div class="then">' + (avg[1] ? tidText(avg[1], nu) : '') + '</div></div>';
+        rader++;
+      }
+      if (!rader) h += '<div class="dep muted">Inga avgångar den närmaste timmen.</div>';
+    }
+    ruta('w-buss', 'Avgångar', buss.senast
+      ? (buss.fel ? '<span style="color:#f85149">Ingen kontakt</span> · ' : '') + 'Uppdaterad ' + hm(buss.senast) : '', h);
+  }
+
+  // ================= Musik (Macen) =================
+  // Bilden /api/nu.svg från Macen visar låt och omslag. Laddas den inte är Macen avstängd.
+  var musik = { pa: null, bild: null, timer: null };
+  function laddaMusik() {
+    clearTimeout(musik.timer);
+    var img = new Image(), klar = false;
+    img.alt = '';
+    img.onload = function () {
+      if (klar) return;
+      klar = true;
+      var forst = musik.pa !== true;
+      musik.pa = true;
+      musik.bild = img;
+      if (forst) ritaMusik();
+      else { var b = $('nu-bild'); if (b) { b.innerHTML = ''; b.appendChild(img); } }
+      musik.timer = setTimeout(laddaMusik, 5000);
+    };
+    img.onerror = function () {
+      if (klar) return;
+      klar = true;
+      if (musik.pa !== false) { musik.pa = false; ritaMusik(); }
+      musik.timer = setTimeout(laddaMusik, 30000);
+    };
+    setTimeout(function () { if (!klar) img.onerror(); }, 5000);
+    img.src = MAC + '/api/nu.svg?t=' + new Date().getTime();
+  }
+  function ritaMusik() {
+    if (musik.pa) {
+      ruta('w-musik', 'Musik', '<span class="lage mac">Styrs från Macen</span>',
+        '<div class="nu-bild" id="nu-bild"></div>' +
+        '<div class="row knappar"><span class="knapp" data-mac="foregaende">&#9664;&#9664;</span>' +
+        '<span class="knapp stor" data-mac="playpause">&#9654;&#10074;&#10074;</span>' +
+        '<span class="knapp" data-mac="nasta">&#9654;&#9654;</span></div>' +
+        '<div class="pil">›</div>');
+      $('nu-bild').appendChild(musik.bild);
+    } else {
+      ruta('w-musik', 'Musik', '<span class="lage">' + (musik.pa === false ? 'Macen är inte igång' : 'Letar efter Macen…') + '</span>',
+        '<div class="row" style="margin-top:22px"><div class="not">&#9835;</div>' +
+        '<div class="grow tom" style="margin-top:0">Tryck för att välja en skiva. Den öppnas i Musik-appen, ' +
+        'välj sedan HomePod med AirPlay-ikonen.</div></div><div class="pil">›</div>');
+    }
+  }
+  function macKommando(vad) {
+    var img = new Image();   // en bild räcker för att skicka kommandot från en https-sida
+    img.src = MAC + '/api/' + vad + '?t=' + new Date().getTime();
+    setTimeout(laddaMusik, 700);
+  }
+
+  // ================= Matsedel =================
+  // Matsedeln sparar en översikt per vecka ('matsedel-oversikt:ÅÅÅÅ-vNN'). Saknas den laddas
+  // matsedeln en gång i en dold ram, så att veckans förslag skapas och sparas.
+  function veckaFor(d) {
+    var t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var dag = (t.getDay() + 6) % 7;
+    var tors = new Date(t.getFullYear(), t.getMonth(), t.getDate() - dag + 3);
+    var vecka = 1 + Math.floor(Math.round((tors - new Date(tors.getFullYear(), 0, 1)) / 86400000) / 7);
+    return { ar: tors.getFullYear(), vecka: vecka };
+  }
+  function oversikt(d) { var v = veckaFor(d); return lasa('matsedel-oversikt:' + v.ar + '-v' + v.vecka); }
+  var ramLaddad = {};
+  function bildUrl(u) {
+    if (!u || /^https?:/.test(u)) return u;
+    return APPAR.mat.replace(/[^\/]*$/, '') + u;   // egna bilder ligger bredvid matsedeln
+  }
+  function ritaMat() {
+    var nu = new Date(), v = veckaFor(nu), o = oversikt(nu), idx = (nu.getDay() + 6) % 7;
+    if (!o || !o.dagar || o.dagar.length !== 7) {
+      var k = v.ar + '-' + v.vecka;
+      if (!ramLaddad[k]) {
+        ramLaddad[k] = true;
+        var ram = document.createElement('iframe');
+        ram.style.display = 'none';
+        ram.onload = function () { setTimeout(function () { ram.parentNode.removeChild(ram); ritaMat(); }, 300); };
+        ram.src = APPAR.mat;
+        document.body.appendChild(ram);
+      }
+      ruta('w-mat', 'Matsedel · <b>vecka ' + v.vecka + '</b>', '', '<div class="tom">Hämtar veckans matsedel…</div>');
+      return;
+    }
+    var r = o.dagar[idx], bild = bildUrl(r.bild);
+    var h = '<div class="row idag" data-dag="' + idx + '">' +
+      (bild ? '<div class="foto" style="background-image:url(\'' + esc(bild) + '\')"></div>' : '') +
+      '<div class="grow"><div class="dag">Idag · ' + DAGAR[nu.getDay()] + (r.ute ? ' · hoppas över' : '') + '</div>' +
+      '<div class="ratt">' + esc(r.namn) + '</div>' +
+      '<div class="meta"><span class="kat c-' + r.kat + '">' + KAT[r.kat] + '</span>' + r.tid + ' min · 4 port.</div></div></div>';
+    // De närmaste dagarna, även in i nästa vecka om den redan är planerad
+    h += '<div class="kommande">';
+    for (var n = 1, visade = 0; n <= 6 && visade < 3; n++) {
+      var d = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate() + n), od = oversikt(d);
+      if (!od || !od.dagar) continue;
+      var x = od.dagar[(d.getDay() + 6) % 7];
+      h += '<div class="kd ell' + (x.ute ? ' ute' : '') + '"><b>' + cap(DAGAR[d.getDay()].substr(0, 3)) + '</b>' +
+        '<span class="dot c-' + x.kat + '"></span>' + esc(x.namn) + '</div>';
+      visade++;
+    }
+    if (!visade) h += '<div class="kd muted">Nästa vecka är inte planerad än – tryck för att se förslaget.</div>';
+    h += '</div>';
+    ruta('w-mat', 'Matsedel · <b>vecka ' + v.vecka + '</b>',
+      o.kvar ? '🛒 ' + o.kvar + (o.kvar === 1 ? ' vara' : ' varor') + ' kvar att handla' : '🛒 Allt handlat', h);
+  }
+  var KAT = { kyckling: 'Kyckling', fisk: 'Fisk', kott: 'Kött', vego: 'Vegetariskt' };
+
+  // ================= Tryck =================
+  function narmast(el, attr) {
+    while (el && el.getAttribute && el !== document.body) {
+      if (el.getAttribute(attr) !== null) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+  document.addEventListener('click', function (e) {
+    var mac = narmast(e.target, 'data-mac');
+    if (mac) { macKommando(mac.getAttribute('data-mac')); return; }
+    var w = narmast(e.target, 'data-app');
+    if (!w) return;
+    var app = w.getAttribute('data-app'), extra = '';
+    var dag = narmast(e.target, 'data-dag');
+    if (dag) extra = '&dag=' + dag.getAttribute('data-dag');
+    location.href = encodeURI(APPAR[app]) + '?hem=' + encodeURIComponent(HEM) + extra;
+  }, false);
+
+  // ================= Start =================
+  tickClock();
+  setInterval(function () { tickClock(); if (buss.senast) ritaBuss(); }, 15000);
+  ritaVader(); ritaMusik(); ritaBuss(); ritaMat();
+  laddaVader();   setInterval(laddaVader, 30 * 60000);
+  laddaVarningar(); setInterval(laddaVarningar, 15 * 60000);
+  laddaPollen();  setInterval(laddaPollen, 3 * 3600000);
+  laddaBuss();    setInterval(laddaBuss, 30000);
+  laddaMusik();
+  setInterval(ritaMat, 60000);
+  setTimeout(function () { location.reload(); }, 6 * 3600000);   // håller gamla Safari pigg
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Musik">
+<title>Musikstation</title>
+<!--
+  Startsida för musik på gammal iPad mini (iOS 12).
+  Skriven i ES5 utan moderna JS-funktioner, samma stil som Väderstationen.
+
+  Två lägen:
+  - Macen är igång (musikserver.py körs): sidan visas från Macen och styr Musik-appen där.
+    Ett tryck på ett omslag spelar skivan, och man väljer HomePods och volym på sidan.
+  - Macen är avstängd: ett tryck på ett omslag öppnar skivan i Musik-appen på iPaden.
+    Där trycker man Spela och väljer HomePod med AirPlay-ikonen.
+  Visas sidan från någon annanstans än Macen letar den efter Macen och byter dit
+  så fort den svarar. Visas den från Macen och Macen slutar svara byter sidan läge.
+
+  Skivorna sparas på Macen (skivor.json). Tryck på "Ändra" när Macen är igång för att
+  lägga till en skiva med en Apple Music-länk eller ett sökord, eller ta bort en.
+  Listan SKIVOR nedan visas bara om listan från Macen inte går att hämta.
+  För att Macen ska kunna spela skivorna måste de vara tillagda i Musik-biblioteket.
+-->
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  .wrap { box-sizing: border-box; padding: 22px 36px; }
+  .muted { color: #8b949e; }
+  .hidden { display: none; }
+  .row { display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+  .grow { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-width: 0; }
+
+  .top { overflow: hidden; }
+  .clock { float: left; font-size: 64px; font-weight: 200; line-height: 1; letter-spacing: -1px; }
+  .hint { float: right; font-size: 16px; text-align: right; margin-top: 10px; line-height: 1.5; }
+  .lage { display: inline-block; font-size: 14px; padding: 3px 10px; border-radius: 12px;
+    background: #161b22; margin-bottom: 4px; }
+  .lage.mac { background: #12361f; color: #7ee2a8; }
+  .section { font-size: 15px; letter-spacing: 1px; text-transform: uppercase; margin: 24px 0 12px; }
+
+  .nu { background: #161b22; border-radius: 16px; padding: 16px; margin-top: 20px; }
+  .nu-omslag { width: 110px; height: 110px; border-radius: 10px; background: #0d1117 center / cover no-repeat;
+    margin-right: 18px; -webkit-flex-shrink: 0; flex-shrink: 0; }
+  .nu-namn { font-size: 24px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nu-artist { font-size: 18px; color: #8b949e; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .knappar { margin-top: 12px; }
+  .knapp { display: inline-block; min-width: 56px; height: 48px; line-height: 48px; text-align: center;
+    border-radius: 24px; background: #21262d; color: #e6edf3; font-size: 20px; margin-right: 8px; padding: 0 6px; }
+  .knapp:active { background: #30363d; }
+  .knapp.stor { min-width: 72px; background: #e6edf3; color: #0d1117; }
+  .volym { font-size: 17px; margin-left: 8px; }
+
+  .hogtalare { margin-top: 14px; font-size: 0; }
+  /* cursor: pointer behövs för att Safari på iOS ska skicka tryck till span-element. */
+  .knapp, .chip { cursor: pointer; }
+  .chip { display: inline-block; font-size: 17px; padding: 8px 14px; border-radius: 20px;
+    background: #21262d; color: #8b949e; margin: 0 8px 8px 0; }
+  .chip.vald { background: #1f6feb; color: #fff; }
+
+  .grid { font-size: 0; }
+  .card { display: inline-block; vertical-align: top; width: 31%; margin: 0 3.5% 24px 0;
+    text-decoration: none; color: #e6edf3; font-size: 18px; }
+  .card:nth-child(3n) { margin-right: 0; }
+  .cover { display: block; width: 100%; padding-bottom: 100%; border-radius: 12px;
+    background: #161b22 center / cover no-repeat; box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+  .card:active .cover { opacity: .7; }
+  .card { position: relative; }
+  .ta-bort { display: none; position: absolute; top: -10px; right: -10px; width: 40px; height: 40px;
+    line-height: 40px; text-align: center; border-radius: 20px; background: #da3633; color: #fff;
+    font-size: 22px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .andrar .ta-bort { display: block; }
+  .andrar .card:active .cover { opacity: 1; }
+
+  .rubrik { overflow: hidden; }
+  .rubrik .section { float: left; }
+  .andra-knapp { float: right; margin-top: 18px; font-size: 17px; color: #58a6ff; padding: 6px 0 6px 16px; cursor: pointer; }
+  .lagg-till { margin-bottom: 24px; }
+  .lagg-till input { -webkit-appearance: none; box-sizing: border-box; height: 48px; border: 0; border-radius: 12px;
+    background: #161b22; color: #e6edf3; font-size: 18px; padding: 0 14px; margin-right: 10px; }
+  .lagg-till .knapp { margin-right: 0; padding: 0 18px; font-size: 18px; }
+  .lagg-till .muted { font-size: 15px; margin-top: 8px; line-height: 1.4; }
+  .title { margin-top: 10px; font-weight: 500; line-height: 1.25; }
+  .artist { font-size: 16px; color: #8b949e; margin-top: 2px; }
+
+  .meddelande { position: fixed; left: 50%; bottom: 30px; width: 520px; margin-left: -260px; box-sizing: border-box;
+    background: #30363d; color: #e6edf3; font-size: 18px; padding: 14px 18px; border-radius: 14px;
+    text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+
+  @media (max-width: 600px) {
+    .wrap { padding: 16px; }
+    .card { width: 48%; margin-right: 4%; }
+    .card:nth-child(3n) { margin-right: 4%; }
+    .card:nth-child(2n) { margin-right: 0; }
+    .meddelande { width: 90%; margin-left: -45%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="clock" id="clock">--:--</div>
+    <div class="hint muted">
+      <span class="lage" id="lage">Letar efter Macen …</span><br>
+      <span id="hint">Tryck på en skiva för att öppna den i Musik.<br>Välj HomePod med AirPlay-ikonen.</span>
+    </div>
+  </div>
+
+  <div class="nu hidden" id="nu">
+    <div class="row">
+      <div class="nu-omslag" id="nu-omslag"></div>
+      <div class="grow">
+        <div class="nu-namn" id="nu-namn">Inget spelas</div>
+        <div class="nu-artist" id="nu-artist">&nbsp;</div>
+        <div class="row knappar">
+          <span class="knapp" id="k-foreg">&#9664;&#9664;</span>
+          <span class="knapp stor" id="k-play">&#9654;</span>
+          <span class="knapp" id="k-nasta">&#9654;&#9654;</span>
+          <span class="grow"></span>
+          <span class="knapp" id="k-ner">&minus;</span>
+          <span class="volym muted" id="volym">–</span>
+          <span class="knapp" id="k-upp" style="margin-left:8px;margin-right:0">+</span>
+        </div>
+      </div>
+    </div>
+    <div class="hogtalare" id="hogtalare"></div>
+  </div>
+
+  <div class="rubrik">
+    <div class="section muted">Skivor och spellistor</div>
+    <span class="andra-knapp hidden" id="andra">Ändra</span>
+  </div>
+  <div class="lagg-till hidden" id="lagg-till">
+    <div class="row">
+      <input class="grow" id="ny-skiva" type="text" autocomplete="off" autocorrect="off" autocapitalize="off"
+        placeholder="Klistra in en länk, eller skriv artist och skiva">
+      <span class="knapp stor" id="k-lagg-till">Lägg till</span>
+    </div>
+    <div class="muted">I Musik-appen: tryck på ··· vid skivan, välj Dela och sedan Kopiera.
+      Tryck på &times; på en skiva för att ta bort den.</div>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+<div class="meddelande hidden" id="meddelande"></div>
+
+<script>
+// Macens adress i hemnätverket (servern musikserver.py lyssnar på port 8817).
+var MAC = "http://MacBook-Pro-som-tillhor-Helena.local:8817";
+
+// Reservlista när skivorna inte kan hämtas från Macen. sokvag är det som står
+// efter "music.apple.com/se/" i Apple Music-länken.
+var SKIVOR = [
+  { titel: "Blau Hajmel", artist: "Moonica Mac", sokvag: "album/blau-hajmel/6815623056",
+    omslag: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/7e/27/12/7e2712b7-bb87-7948-6410-ddb8640fa6c3/7333595884254.jpg/600x600bb.jpg" },
+  { titel: "In the Garden", artist: "Eurythmics", sokvag: "album/in-the-garden-2018-remastered/1360440088",
+    omslag: "https://is1-ssl.mzstatic.com/image/thumb/Music62/v4/98/8c/97/988c9782-027e-46b8-9d03-dbecaf7ca20f/886447027585.jpg/600x600bb.jpg" },
+  { titel: "Inside Story", artist: "Grace Jones", sokvag: "album/inside-story/724191007",
+    omslag: "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/e4/63/6d/e4636d0d-67d8-8e48-1512-1cbd8ef3caa9/13UABIM69551.rgb.jpg/600x600bb.jpg" },
+  { titel: "Jazz Soul Café", artist: "Spellista · Apple Music Jazz", sokvag: "playlist/jazz-soul-caf%C3%A9/pl.dcc30348803d4d2ab81642c87d933e90",
+    omslag: "https://is1-ssl.mzstatic.com/image/thumb/Features115/v4/cb/61/17/cb61171b-d0da-46ca-1a19-9616a661859d/U0MtTVMtV1ctSmF6el9Tb3VsX0NhZmVfLUFEQU1fSUQ9OTkxNDExMTM2LnBuZw.png/600x600cc.jpg" },
+  { titel: "The Loop", artist: "Jordan Rakei", sokvag: "album/the-loop/1720224491",
+    omslag: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/4c/db/8b/4cdb8b03-c417-3834-483f-f231d11e4658/23UM1IM53863.rgb.jpg/600x600bb.jpg" },
+  { titel: "Tragic Magic", artist: "Matt Corby", sokvag: "album/tragic-magic/1843558452",
+    omslag: "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/dc/51/7f/dc517f1d-da93-29a1-a3a3-a05d2121e655/25UM1IM51446.rgb.jpg/600x600bb.jpg" }
+];
+
+// På iPad/iPhone öppnas Musik-appen direkt, på datorn öppnas Apple Musics webbsida.
+var IOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+// Sidan visas från Macens server.
+var PA_MAC = location.port === "8817";
+var macSvarar = false;
+var missar = 0;
+var senaste = null;
+var omslagId = null;
+
+function $(id) { return document.getElementById(id); }
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+}
+
+function api(vag, cb) {
+  var x = new XMLHttpRequest();
+  x.open("GET", vag, true);
+  x.timeout = 8000;
+  x.onload = function () {
+    var d = null;
+    try { d = JSON.parse(x.responseText); } catch (e) {}
+    cb(x.status === 200 ? d : null);
+  };
+  x.onerror = x.ontimeout = function () { cb(null); };
+  x.send();
+}
+
+function visaMeddelande(text) {
+  var m = $("meddelande");
+  m.innerHTML = esc(text);
+  m.className = "meddelande";
+  clearTimeout(visaMeddelande.t);
+  visaMeddelande.t = setTimeout(function () { m.className = "meddelande hidden"; }, 6000);
+}
+
+function visaSkivor() {
+  var html = "";
+  for (var i = 0; i < SKIVOR.length; i++) {
+    var s = SKIVOR[i];
+    var lank = (IOS ? "music://" : "https://") + "music.apple.com/se/" + s.sokvag;
+    html += '<a class="card" data-i="' + i + '" href="' + esc(lank) + '"' + (IOS ? '' : ' target="_blank"') + '>' +
+      '<span class="ta-bort">&times;</span>' +
+      '<span class="cover" style="background-image:url(\'' + esc(s.omslag) + '\')"></span>' +
+      '<div class="title">' + esc(s.titel) + '</div>' +
+      '<div class="artist">' + esc(s.artist) + '</div></a>';
+  }
+  $("grid").innerHTML = html;
+}
+
+function visaLage() {
+  if (macSvarar) {
+    $("lage").innerHTML = "Styrs från Macen";
+    $("lage").className = "lage mac";
+    $("hint").innerHTML = "Tryck på en skiva för att spela den.";
+    $("nu").className = "nu";
+    $("andra").className = "andra-knapp";
+  } else {
+    $("andra").className = "andra-knapp hidden";
+    if (andrar) vaxlaAndra();
+    $("lage").innerHTML = "Macen är inte igång";
+    $("lage").className = "lage";
+    $("hint").innerHTML = "Tryck på en skiva för att öppna den i Musik.<br>Välj HomePod med AirPlay-ikonen.";
+    $("nu").className = "nu hidden";
+  }
+}
+
+// --- Styrning via Macen ---
+
+function visaStatus(s) {
+  senaste = s;
+  var spelar = s.lage === "playing";
+  $("k-play").innerHTML = spelar ? "&#10074;&#10074;" : "&#9654;";
+  $("volym").innerHTML = s.volym;
+  if (s.spar) {
+    $("nu-namn").innerHTML = esc(s.spar.namn);
+    $("nu-artist").innerHTML = esc(s.spar.artist + (s.spar.album ? " – " + s.spar.album : ""));
+    if (s.spar.id !== omslagId) {
+      omslagId = s.spar.id;
+      $("nu-omslag").style.backgroundImage = "url('/api/omslag?id=" + encodeURIComponent(omslagId) + "')";
+    }
+  } else {
+    $("nu-namn").innerHTML = "Inget spelas";
+    $("nu-artist").innerHTML = "&nbsp;";
+    $("nu-omslag").style.backgroundImage = "none";
+    omslagId = null;
+  }
+  var html = "";
+  for (var i = 0; i < s.hogtalare.length; i++) {
+    var h = s.hogtalare[i];
+    var namn = h.typ === "computer" ? "Macen" : h.namn + (h.typ === "Apple TV" ? " (Apple TV)" : "");
+    html += '<span class="chip' + (h.vald ? ' vald' : '') + '" data-id="' + esc(h.id) + '">' + esc(namn) + '</span>';
+  }
+  // Byt bara ut knapparna när något ändrats, annars kan ett tryck försvinna mitt i.
+  if (html !== visaStatus.hogtalare) {
+    visaStatus.hogtalare = html;
+    $("hogtalare").innerHTML = html;
+  }
+}
+
+function hamtaStatus() {
+  api("/api/status", function (s) {
+    if (s && s.hogtalare) {
+      missar = 0;
+      if (!macSvarar) { macSvarar = true; visaLage(); }
+      visaStatus(s);
+    } else if (++missar >= 2 && macSvarar) {
+      macSvarar = false;
+      visaLage();
+    }
+  });
+}
+
+function kommando(vag) {
+  api(vag, function () { setTimeout(hamtaStatus, 400); });
+}
+
+function narmast(el, klass) {
+  while (el && el !== document) {
+    if ((" " + el.className + " ").indexOf(" " + klass + " ") >= 0) return el;
+    el = el.parentNode;
+  }
+  return null;
+}
+
+$("grid").onclick = function (e) {
+  if (!macSvarar) return; // vanlig länk till Musik-appen
+  var kort = narmast(e.target, "card");
+  if (!kort) return;
+  e.preventDefault();
+  var s = SKIVOR[+kort.getAttribute("data-i")];
+  if (andrar) {
+    if (narmast(e.target, "ta-bort") && confirm("Ta bort " + s.titel + " från musikstationen?")) {
+      api("/api/ta-bort?sokvag=" + encodeURIComponent(s.sokvag), function (svar) {
+        if (svar && svar.skivor) { SKIVOR = svar.skivor; visaSkivor(); }
+        else visaMeddelande("Det gick inte att ta bort " + s.titel + ".");
+      });
+    }
+    return;
+  }
+  visaMeddelande("Startar " + s.titel + " …");
+  api("/api/spela?sokvag=" + encodeURIComponent(s.sokvag) + "&titel=" + encodeURIComponent(s.titel) +
+      "&artist=" + encodeURIComponent(s.artist), function (svar) {
+    if (svar && svar.saknas) {
+      visaMeddelande(s.titel + " finns inte i Macens musikbibliotek. Den visas nu i Musik på Macen – tryck Lägg till där.");
+    } else if (!svar) {
+      visaMeddelande("Det gick inte att starta " + s.titel + ".");
+    }
+    setTimeout(hamtaStatus, 800);
+  });
+};
+
+$("hogtalare").onclick = function (e) {
+  var chip = narmast(e.target, "chip");
+  if (!chip || !senaste) return;
+  var id = chip.getAttribute("data-id");
+  var ids = [];
+  for (var i = 0; i < senaste.hogtalare.length; i++) {
+    var h = senaste.hogtalare[i];
+    var vald = h.id === id ? !h.vald : h.vald;
+    if (vald) ids.push(h.id);
+  }
+  if (!ids.length) return; // minst en högtalare måste vara vald
+  chip.className = chip.className.indexOf("vald") >= 0 ? "chip" : "chip vald";
+  kommando("/api/hogtalare?ids=" + encodeURIComponent(ids.join(",")));
+};
+
+$("k-play").onclick = function () { kommando("/api/playpause"); };
+$("k-nasta").onclick = function () { kommando("/api/nasta"); };
+$("k-foreg").onclick = function () { kommando("/api/foregaende"); };
+function andraVolym(steg) {
+  if (!senaste) return;
+  var v = Math.max(0, Math.min(100, senaste.volym + steg));
+  senaste.volym = v;
+  $("volym").innerHTML = v;
+  kommando("/api/volym?v=" + v);
+}
+$("k-ner").onclick = function () { andraVolym(-5); };
+$("k-upp").onclick = function () { andraVolym(5); };
+
+// --- Lägga till och ta bort skivor ---
+
+var andrar = false;
+
+function vaxlaAndra() {
+  andrar = !andrar;
+  $("andra").innerHTML = andrar ? "Klar" : "Ändra";
+  $("lagg-till").className = andrar ? "lagg-till" : "lagg-till hidden";
+  $("grid").className = andrar ? "grid andrar" : "grid";
+}
+$("andra").onclick = vaxlaAndra;
+
+function laggTill() {
+  var falt = $("ny-skiva");
+  var text = falt.value.replace(/^\s+|\s+$/g, "");
+  if (!text) return;
+  falt.blur();
+  visaMeddelande("Letar …");
+  api("/api/lagg-till?text=" + encodeURIComponent(text), function (svar) {
+    if (svar && svar.skivor) { SKIVOR = svar.skivor; visaSkivor(); }
+    if (svar && svar.ok) {
+      falt.value = "";
+      visaMeddelande("La till " + svar.skiva.titel + " – " + svar.skiva.artist + ".");
+    } else {
+      visaMeddelande(svar && svar.fel ? svar.fel : "Det gick inte att lägga till skivan.");
+    }
+  });
+}
+$("k-lagg-till").onclick = laggTill;
+$("ny-skiva").onkeydown = function (e) { if (e.keyCode === 13) laggTill(); };
+
+function hamtaSkivor() {
+  api("/api/skivor", function (svar) {
+    if (svar && svar.skivor) { SKIVOR = svar.skivor; visaSkivor(); }
+  });
+}
+
+// --- Leta efter Macen när sidan visas från någon annanstans ---
+
+function letaEfterMacen() {
+  var img = new Image();
+  var klar = false;
+  img.onload = function () { if (!klar) { klar = true; location.replace(MAC + "/" + location.search); } };
+  img.onerror = function () { klar = true; };
+  setTimeout(function () { klar = true; }, 3000);
+  img.src = MAC + "/ping.gif?t=" + new Date().getTime();
+}
+
+function tick() {
+  var d = new Date();
+  var h = d.getHours(), m = d.getMinutes();
+  $("clock").innerHTML = (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+}
+
+visaSkivor();
+visaLage();
+tick();
+setInterval(tick, 10000);
+if (PA_MAC) {
+  hamtaSkivor();
+  hamtaStatus();
+  setInterval(hamtaStatus, 3000);
+} else {
+  letaEfterMacen();
+  setInterval(letaEfterMacen, 30000);
+}
+</script>
+<script>
+// Hemstationen: öppnas sidan från startsidan (?hem=adress) visas en Hem-knapp och efter 10 minuter utan tryck går den tillbaka.
+(function () {
+  var m = /[?&]hem=([^&]*)/.exec(location.search);
+  if (!m) return;
+  var hem = decodeURIComponent(m[1]);
+  if (!/^https?:\/\//.test(hem)) return;
+  var a = document.createElement('a');
+  a.href = hem;
+  a.innerHTML = '&#8962; Hem';
+  a.setAttribute('style', 'position:absolute;top:8px;left:50%;width:96px;margin-left:-48px;z-index:60;' +
+    'height:36px;line-height:36px;border-radius:18px;background:#21262d;color:#e6edf3;text-align:center;' +
+    'font-size:17px;text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.4)');
+  document.body.appendChild(a);
+  // Tillbaka till startsidan efter 10 minuter utan tryck
+  var t;
+  function vanta() { clearTimeout(t); t = setTimeout(function () { location.href = hem; }, 600000); }
+  document.addEventListener('touchstart', vanta, true);
+  document.addEventListener('click', vanta, true);
+  vanta();
+})();
+</script>
+</body>
+</html>

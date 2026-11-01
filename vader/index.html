@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Väder">
+<title>Väderstation</title>
+<!--
+  Väderskärm för gammal iPad mini (fungerar ända ner till iOS 9).
+  Skriven i ES5 utan moderna JS-funktioner, med data från SMHI (snow1g)
+  och pollenprognos från Pollenrapporten.se (närmaste mätstation väljs automatiskt).
+  Plats väljs med URL-parametrar, t.ex.  index.html?lat=58.35&lon=11.93&namn=Uddevalla
+  Tryck på Väder/Foto/Natt för att byta vy. Med &vy=foto eller &vy=natt startar sidan i den vyn.
+  Norrskensprognos (Kp) från NOAA SWPC. Radar, varningar, vattenstånd och vågmätningar från SMHI,
+  vågprognos från Open-Meteo, karta från OpenStreetMap.
+  Egna fotoplatser läggs in i listan PLATSER längre ner.
+-->
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+  }
+  .wrap { box-sizing: border-box; height: 100%; padding: 22px 36px;
+    display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column; }
+  .row { display: -webkit-box; display: -webkit-flex; display: flex; }
+  .grow { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; }
+  .muted { color: #8b949e; }
+
+  .top { -webkit-box-align: start; -webkit-align-items: flex-start; align-items: flex-start; }
+  .clock { font-size: 100px; font-weight: 200; line-height: 1; letter-spacing: -2px; }
+  .date { font-size: 26px; margin-top: 8px; }
+  .place { font-size: 22px; text-align: right; }
+  .updated { font-size: 15px; text-align: right; margin-top: 6px; }
+
+  .now { margin-top: 12px; -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+  .now-icon { font-size: 92px; line-height: 1; width: 130px; }
+  .now-temp { font-size: 110px; font-weight: 200; line-height: 1; margin-left: 10px; }
+  .now-text { font-size: 28px; margin-left: 30px; }
+  .facts { font-size: 22px; line-height: 1.7; text-align: right; }
+  .facts b { font-weight: 500; color: #e6edf3; }
+
+  .section { font-size: 15px; letter-spacing: 1px; text-transform: uppercase; margin: 16px 0 8px; }
+  .tiles .tile { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; text-align: center;
+    background: #161b22; border-radius: 14px; padding: 8px 4px; margin-right: 10px; }
+  .tiles .tile:last-child { margin-right: 0; }
+  .tile .t { font-size: 17px; color: #8b949e; }
+  .tile .i { font-size: 34px; margin: 4px 0; }
+  .tile .v { font-size: 24px; }
+  .tile .s { font-size: 15px; color: #8b949e; margin-top: 2px; }
+  .rain { color: #58a6ff; }
+
+  .pollen { -webkit-flex-wrap: wrap; flex-wrap: wrap; }
+  .chip { background: #161b22; border-radius: 20px; padding: 6px 14px 6px 10px;
+    margin: 0 8px 8px 0; font-size: 18px; white-space: nowrap; }
+  .chip .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px;
+    margin-right: 8px; vertical-align: 0; }
+  .chip .lvl { color: #8b949e; margin-left: 6px; }
+  .pollen-text { font-size: 16px; line-height: 1.4; }
+
+  .error { color: #f0883e; font-size: 18px; margin-top: 10px; }
+
+  /* Knappgrupper (Väder/Foto och dagväljare) */
+  .seg { display: inline-block; border: 1px solid #3d3428; border-radius: 22px; padding: 2px; white-space: nowrap; }
+  .seg span { display: inline-block; padding: 6px 13px; font-size: 17px; border-radius: 20px;
+    color: #c9b48a; cursor: pointer; }
+  .seg span.on { background: #e3b341; color: #1a140c; }
+  .tabs-row { text-align: right; margin-bottom: 10px; }
+
+  /* Fotoläge */
+  body.foto { background: #15110c; }
+  .foto-title { font-size: 30px; font-weight: 300; color: #f3e6c8; }
+  .foto-title .cam { color: #e3b341; margin-right: 6px; }
+  .fhead { -webkit-box-align: center; -webkit-align-items: center; align-items: center;
+    padding-bottom: 12px; border-bottom: 1px solid #3d3428; }
+  .fhead .seg { margin-left: 14px; }
+  .fbody { margin-top: 14px; }
+  .fcol-left { width: 390px; padding-right: 26px; border-right: 1px solid #3d3428; }
+  .fcol-right { padding-left: 26px; }
+  .fsec { font-size: 22px; color: #e3b341; margin: 4px 0 10px; }
+  .fsec.later { margin-top: 18px; }
+  .fl { font-size: 20px; line-height: 1.7; color: #d8ccb4; white-space: nowrap; overflow: hidden; }
+  .fl .fi { display: inline-block; width: 30px; }
+  .fl b { font-weight: 500; color: #f3e6c8; }
+  .fl .why { color: #9a8a6c; font-size: 16px; }
+  .foto .tiles .tile { background: #1f1912; border: 1px solid #3d3428; }
+  .foto .tile .t, .foto .tile .s { color: #b09d78; }
+  .foto .tile.past { opacity: 0.45; }
+  .foto .tile .s.gold { color: #e3b341; }
+  .foto .tile .i { font-size: 40px; margin: 8px 0; }
+  .foto .tile { padding: 12px 4px; }
+  .tip { background: #1f1912; border: 1px solid #3d3428; border-radius: 14px; padding: 14px 18px; margin-bottom: 12px;
+    text-decoration: none; color: inherit; -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+  .tip:active { background: #2a2219; }
+  .tip .chev { font-size: 40px; color: #e3b341; margin-left: 16px; line-height: 1; }
+  .tip .tn { font-size: 23px; color: #f3e6c8; }
+  .tip .td { font-size: 16px; color: #b09d78; margin-top: 2px; }
+  /* Nattläge: samma upplägg som fotoläget men i blått */
+  body.natt { background: #0a0e18; }
+  body.natt .fhead, body.natt .fcol-left { border-color: #24314a; }
+  body.natt .fsec { color: #9db8e8; }
+  body.natt .fl { color: #c9d4e8; }
+  body.natt .fl b, body.natt .tip .tn, body.natt .foto-title { color: #eef3ff; }
+  body.natt .fl .why, body.natt .tip .td, body.natt .tiles .tile .t, body.natt .tiles .tile .s { color: #8fa3c8; }
+  body.natt .tiles .tile, body.natt .tip { background: #111a2b; border-color: #24314a; }
+  body.natt .tiles .tile .s.gold, body.natt .tip .tr, body.natt .tip .chev { color: #e3c766; }
+  body.natt .tip .tw { color: #c9d4e8; }
+  body.natt .tip:active { background: #19243a; }
+  /* Radar & hav */
+  body.radar .fhead { border-color: #30363d; }
+  body.radar .fsec { color: #79c0ff; }
+  body.radar .fl { color: #c9d1d9; }
+  body.radar .fl b { color: #e6edf3; }
+  body.radar .fl .why { color: #8b949e; }
+  .rmap { position: relative; width: 560px; height: 570px; overflow: hidden; border-radius: 14px; background: #1b1f24; }
+  .rmap img { position: absolute; width: 256px; height: 256px;
+    -webkit-filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.85) saturate(0.3);
+    filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.85) saturate(0.3); }
+  .rmap canvas { position: absolute; left: 0; top: 0; width: 560px; height: 570px; }
+  .rmark { position: absolute; width: 10px; height: 10px; border-radius: 7px; background: #e3b341;
+    border: 2px solid #fff; margin: -7px 0 0 -7px; }
+  .rtime { position: absolute; left: 10px; top: 10px; background: rgba(13, 17, 23, 0.75); padding: 5px 12px;
+    border-radius: 10px; font-size: 18px; }
+  .rattr { position: absolute; right: 0; bottom: 0; font-size: 11px; color: #9aa4ae; background: rgba(13, 17, 23, 0.7);
+    padding: 2px 6px; border-top-left-radius: 6px; }
+  .rlegend { font-size: 14px; color: #8b949e; margin-top: 8px; }
+  .rlegend .bar { display: inline-block; width: 220px; height: 10px; border-radius: 5px; margin: 0 8px; vertical-align: 0;
+    background: -webkit-linear-gradient(left, #4aa3ff, #2ecc40, #ffdc00, #ff851b, #ff2b2b, #c71585);
+    background: linear-gradient(to right, #4aa3ff, #2ecc40, #ffdc00, #ff851b, #ff2b2b, #c71585); }
+  .rcol { padding-left: 26px; }
+  .warn { background: #161b22; border-left: 6px solid #8b949e; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+  .warn .wt { font-size: 18px; }
+  .warn .wd { font-size: 14px; color: #8b949e; margin-top: 2px; }
+  .sea-big { font-size: 40px; font-weight: 300; }
+  .sea-big .why { font-size: 18px; color: #8b949e; margin-left: 8px; }
+  #warnBanner { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 36px; font-size: 18px; font-weight: 500;
+    color: #1a140c; display: none; z-index: 10; cursor: pointer; }
+  .tip .tw { font-size: 17px; color: #d8ccb4; white-space: nowrap; }
+  .tip .tr { font-size: 17px; color: #e3b341; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="vWeather">
+  <div class="row top">
+    <div class="grow">
+      <div class="clock" id="clock">--:--</div>
+      <div class="date muted" id="date"></div>
+    </div>
+    <div>
+      <div class="tabs-row"><div class="seg"><span class="on">Väder</span><span data-view="foto">Foto</span><span data-view="natt">Natt</span><span data-view="radar">Radar</span></div></div>
+      <div class="place" id="place"></div>
+      <div class="updated muted" id="updated">Hämtar prognos…</div>
+    </div>
+  </div>
+
+  <div class="row now">
+    <div class="now-icon" id="nowIcon"></div>
+    <div class="now-temp" id="nowTemp"></div>
+    <div class="now-text grow" id="nowText"></div>
+    <div class="facts muted" id="facts"></div>
+  </div>
+
+  <div class="section muted">Kommande timmar</div>
+  <div class="row tiles" id="hours"></div>
+
+  <div class="section muted">Kommande dagar</div>
+  <div class="row tiles" id="days"></div>
+
+  <div class="section muted" id="pollenTitle">Pollen</div>
+  <div class="row pollen" id="pollen"></div>
+
+  <div class="error" id="error"></div>
+</div>
+
+<div class="wrap" id="vFoto" style="display:none">
+  <div class="row fhead">
+    <div class="foto-title grow"><span class="cam">📷</span> Fotoläge – <span id="fDayName"></span></div>
+    <div class="seg" id="fDays"></div>
+    <div class="seg"><span data-view="weather">Väder</span><span class="on">Foto</span><span data-view="natt">Natt</span><span data-view="radar">Radar</span></div>
+  </div>
+  <div class="row fbody grow">
+    <div class="fcol-left">
+      <div class="fsec">Fotoförhållanden</div>
+      <div id="fCond"></div>
+      <div class="fsec later">Bäst ljus</div>
+      <div id="fLight"></div>
+    </div>
+    <div class="fcol-right grow">
+      <div class="fsec">Väder &amp; ljus</div>
+      <div class="row tiles" id="fTiles"></div>
+      <div class="fsec later">Utflyktstips</div>
+      <div id="fTips"></div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" id="vNatt" style="display:none">
+  <div class="row fhead">
+    <div class="foto-title grow"><span class="cam">🌌</span> Natt – <span id="nDayName"></span></div>
+    <div class="seg" id="nDays"></div>
+    <div class="seg"><span data-view="weather">Väder</span><span data-view="foto">Foto</span><span class="on">Natt</span><span data-view="radar">Radar</span></div>
+  </div>
+  <div class="row fbody grow">
+    <div class="fcol-left">
+      <div class="fsec">Mörker &amp; måne</div>
+      <div id="nDark"></div>
+      <div class="fsec later">Förhållanden i natt</div>
+      <div id="nCond"></div>
+    </div>
+    <div class="fcol-right grow">
+      <div class="fsec">Natten</div>
+      <div class="row tiles" id="nTiles"></div>
+      <div class="fsec later">Mörka platser</div>
+      <div id="nTips"></div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" id="vRadar" style="display:none">
+  <div class="row fhead">
+    <div class="foto-title grow"><span class="cam">🌧</span> Radar &amp; hav</div>
+    <div class="seg"><span data-view="weather">Väder</span><span data-view="foto">Foto</span><span data-view="natt">Natt</span><span class="on">Radar</span></div>
+  </div>
+  <div class="row fbody grow">
+    <div>
+      <div class="rmap" id="rMap">
+        <canvas id="rCanvas"></canvas>
+        <div class="rmark" id="rMark"></div>
+        <div class="rtime" id="rTime">Hämtar radar…</div>
+        <div class="rattr">Radar: SMHI · Karta: © OpenStreetMap</div>
+      </div>
+      <div class="rlegend">Svagt<span class="bar"></span>Kraftigt · senaste timmen</div>
+    </div>
+    <div class="rcol grow">
+      <div class="fsec">Varningar</div>
+      <div id="rWarn"><div class="fl">Hämtar varningar…</div></div>
+      <div class="fsec later">Vattenstånd · Göteborg</div>
+      <div id="rSea"><div class="fl">Hämtar…</div></div>
+      <div class="fsec later">Vågor</div>
+      <div id="rWave"><div class="fl">Hämtar…</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="warnBanner" data-view="radar"></div>
+
+<script>
+(function () {
+  // ---- Inställningar (kan överstyras med ?lat=..&lon=..&namn=..) ----
+  var DEFAULT = { lat: 57.71, lon: 11.97, namn: 'Göteborg' };
+  var REFRESH_MIN = 30;        // hämta ny prognos var 30:e minut
+  var RELOAD_HOURS = 6;        // ladda om hela sidan då och då (håller gamla Safari pigg)
+
+  function param(name) {
+    var m = new RegExp('[?&]' + name + '=([^&]*)').exec(location.search);
+    return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : null;
+  }
+  var lat = parseFloat(param('lat')) || DEFAULT.lat;
+  var lon = parseFloat(param('lon')) || DEFAULT.lon;
+  var namn = param('namn') || (param('lat') ? '' : DEFAULT.namn);
+
+  var DAYS = ['söndag', 'måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag'];
+  var MONTHS = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli',
+                'augusti', 'september', 'oktober', 'november', 'december'];
+  var DIRS = ['N', 'NO', 'O', 'SO', 'S', 'SV', 'V', 'NV'];
+
+  // SMHI:s vädersymboler (Wsymb2, 1–27)
+  var SYMBOLS = {
+    1: ['☀️', 'Klart'], 2: ['🌤', 'Nästan klart'], 3: ['⛅️', 'Växlande molnighet'],
+    4: ['⛅️', 'Halvklart'], 5: ['🌥', 'Molnigt'], 6: ['☁️', 'Mulet'], 7: ['🌫', 'Dimma'],
+    8: ['🌦', 'Lätta regnskurar'], 9: ['🌦', 'Regnskurar'], 10: ['🌧', 'Kraftiga regnskurar'],
+    11: ['⛈', 'Åskskurar'], 12: ['🌨', 'Lätta byar av snöblandat regn'],
+    13: ['🌨', 'Byar av snöblandat regn'], 14: ['🌨', 'Kraftiga byar av snöblandat regn'],
+    15: ['🌨', 'Lätta snöbyar'], 16: ['🌨', 'Snöbyar'], 17: ['❄️', 'Kraftiga snöbyar'],
+    18: ['🌧', 'Lätt regn'], 19: ['🌧', 'Regn'], 20: ['🌧', 'Kraftigt regn'], 21: ['⛈', 'Åska'],
+    22: ['🌨', 'Lätt snöblandat regn'], 23: ['🌨', 'Snöblandat regn'],
+    24: ['🌨', 'Kraftigt snöblandat regn'], 25: ['🌨', 'Lätt snöfall'], 26: ['❄️', 'Snöfall'],
+    27: ['❄️', 'Kraftigt snöfall']
+  };
+  function sym(code, hour) {
+    var s = SYMBOLS[code] || ['', ''];
+    // Natt: byt sol mot måne för klart/nästan klart
+    if ((hour < 6 || hour >= 20) && (code === 1 || code === 2)) return ['🌙', s[1]];
+    return s;
+  }
+
+  function $(id) { return document.getElementById(id); }
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function hm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  function deg(t) { return Math.round(t) + '°'; }
+  function dayKey(d) { return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); }
+  function parseTime(s) {
+    // "2026-11-01T10:00:00Z" – manuell tolkning för säkerhets skull i gammal Safari
+    var p = s.match(/(\d+)-(\d+)-(\d+)T(\d+):(\d+)/);
+    return new Date(Date.UTC(+p[1], +p[2] - 1, +p[3], +p[4], +p[5]));
+  }
+
+  function tickClock() {
+    var d = new Date();
+    $('clock').innerHTML = hm(d);
+    $('date').innerHTML = cap(DAYS[d.getDay()]) + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()];
+  }
+
+  function render(json) {
+    var now = new Date();
+    var series = [];
+    for (var i = 0; i < json.timeSeries.length; i++) {
+      var ts = json.timeSeries[i];
+      var t = parseTime(ts.time);
+      if (t.getTime() > now.getTime() - 3600000) series.push({ t: t, d: ts.data });
+    }
+    if (!series.length) throw new Error('Tom prognos');
+
+    // Nu
+    var c = series[0].d;
+    var s = sym(c.symbol_code, series[0].t.getHours());
+    $('nowIcon').innerHTML = s[0];
+    $('nowTemp').innerHTML = deg(c.air_temperature);
+    $('nowText').innerHTML = s[1];
+    $('facts').innerHTML =
+      'Vind <b>' + Math.round(c.wind_speed) + ' m/s ' + DIRS[Math.round(c.wind_from_direction / 45) % 8] +
+      '</b> (byar ' + Math.round(c.wind_speed_of_gust) + ')<br>' +
+      'Luftfuktighet <b>' + Math.round(c.relative_humidity) + ' %</b><br>' +
+      'Lufttryck <b>' + Math.round(c.air_pressure_at_mean_sea_level) + ' hPa</b>';
+
+    // Kommande timmar: var 2:a timme, 7 rutor
+    var h = '';
+    for (var k = 1, n = 0; k < series.length && n < 7; k += 2, n++) {
+      var e = series[k], es = sym(e.d.symbol_code, e.t.getHours());
+      var mm = e.d.precipitation_amount_mean;
+      h += '<div class="tile"><div class="t">' + pad(e.t.getHours()) + '</div>' +
+           '<div class="i">' + es[0] + '</div><div class="v">' + deg(e.d.air_temperature) + '</div>' +
+           '<div class="s' + (mm > 0 ? ' rain' : '') + '">' +
+           (mm > 0 ? (Math.round(mm * 10) / 10) + ' mm' : Math.round(e.d.wind_speed) + ' m/s') +
+           '</div></div>';
+    }
+    $('hours').innerHTML = h;
+
+    // Kommande dagar: min/max och symbol närmast kl 13, från och med i morgon
+    var days = {}, order = [], todayKey = dayKey(now);
+    for (var j = 0; j < series.length; j++) {
+      var x = series[j], key = dayKey(x.t);
+      if (key === todayKey) continue;
+      if (!days[key]) { days[key] = { date: x.t, min: 99, max: -99, rain: 0, sym: 0, symDist: 99 }; order.push(key); }
+      var dd = days[key], tp = x.d.air_temperature;
+      if (tp < dd.min) dd.min = tp;
+      if (tp > dd.max) dd.max = tp;
+      dd.rain += x.d.precipitation_amount_mean || 0;  // summeras per tidssteg (ungefärligt vid längre steg)
+      var dist = Math.abs(x.t.getHours() - 13);
+      if (dist < dd.symDist) { dd.symDist = dist; dd.sym = x.d.symbol_code; }
+    }
+    var dh = '';
+    for (var m = 0; m < order.length && m < 7; m++) {
+      var day = days[order[m]];
+      dh += '<div class="tile"><div class="t">' + (m === 0 ? 'I morgon' : cap(DAYS[day.date.getDay()].substr(0, 3))) + '</div>' +
+            '<div class="i">' + sym(day.sym, 13)[0] + '</div>' +
+            '<div class="v">' + deg(day.max) + ' <span class="muted">' + deg(day.min) + '</span></div>' +
+            '<div class="s' + (day.rain >= 0.5 ? ' rain' : '') + '">' +
+            (day.rain >= 0.5 ? Math.round(day.rain) + ' mm' : '&nbsp;') + '</div></div>';
+    }
+    $('days').innerHTML = dh;
+
+    fSeries = series;
+    renderFoto();
+    renderNatt();
+
+    $('updated').innerHTML = 'Uppdaterad ' + hm(now) + ' · SMHI';
+    $('error').innerHTML = '';
+  }
+
+  function load() {
+    var url = 'https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1/geotype/point/lon/' +
+              lon.toFixed(4) + '/lat/' + lat.toFixed(4) + '/data.json';
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.timeout = 20000;
+    xhr.onload = function () {
+      try {
+        if (xhr.status !== 200) throw new Error('SMHI svarade ' + xhr.status);
+        render(JSON.parse(xhr.responseText));
+      } catch (err) { showError(err.message); }
+    };
+    xhr.onerror = function () { showError('Kunde inte nå SMHI (nätverksfel)'); };
+    xhr.ontimeout = function () { showError('SMHI svarade inte i tid'); };
+    xhr.send();
+  }
+  function showError(msg) {
+    $('error').innerHTML = msg + ' – försöker igen om en stund.';
+    setTimeout(load, 5 * 60000);
+  }
+
+  // ---- Fotoläge ----
+  // Fotoplatser inom ca 2 timmars restid från Göteborg. Vädret för varje plats hämtas i bakgrunden.
+  // typ: 'kust', 'sjö', 'skog' eller 'landskap'. vast: true om platsen vetter mot solnedgången.
+  // morkt: true för platser långt från stadsljus (används i nattläget).
+  // restid: tid med bil från centrala Göteborg i minuter (OSRM/OpenStreetMap; Vrångö och Hönö inkl. färja).
+  // Koordinater från OpenStreetMap.
+  var MAX_RESTID = 120;
+  var PLATSER = [
+    { namn: 'Delsjöarna', typ: 'sjö', restid: 15, lat: 57.684, lon: 12.044, text: 'Stilla vatten · skog · nära staden' },
+    { namn: 'Stora Amundön', typ: 'kust', vast: true, restid: 25, lat: 57.592, lon: 11.911, text: 'Kala klippor · nära staden' },
+    { namn: 'Bohus fästning', typ: 'landskap', restid: 25, lat: 57.862, lon: 12.000, text: 'Ruin · Nordre älv · höstfärger' },
+    { namn: 'Vättlefjäll', morkt: true, typ: 'skog', restid: 30, lat: 57.835, lon: 12.071, text: 'Sjöar · ljunghedar · mossar' },
+    { namn: 'Särö Västerskog', typ: 'skog', restid: 35, lat: 57.505, lon: 11.926, text: 'Vindpinade ekar · havsvik' },
+    { namn: 'Fjärås Bräcka', typ: 'landskap', vast: true, restid: 40, lat: 57.443, lon: 12.187, text: 'Grusås · utsikt över Lygnern och havet' },
+    { namn: 'Tjolöholm', typ: 'kust', restid: 45, lat: 57.399, lon: 12.103, text: 'Slott · ekhagar · havsvik' },
+    { namn: 'Svartedalen', morkt: true, typ: 'skog', restid: 50, lat: 57.999, lon: 12.019, text: 'Urskogskänsla · sjöar · mossa' },
+    { namn: 'Marstrand', typ: 'kust', vast: true, restid: 50, lat: 57.887, lon: 11.589, text: 'Fästning · kustsamhälle · kvällsljus' },
+    { namn: 'Hållsundsudde', typ: 'kust', vast: true, restid: 55, lat: 57.344, lon: 11.999, text: 'Öppet kustlandskap · kvällsljus' },
+    { namn: 'Hönö Klåva', typ: 'kust', vast: true, restid: 60, lat: 57.682, lon: 11.644, text: 'Fiskehamn · bryggor · solnedgång' },
+    { namn: 'Getterön, Varberg', typ: 'kust', vast: true, restid: 65, lat: 57.120, lon: 12.212, text: 'Fågelliv · strandängar · fästningen' },
+    { namn: 'Risveden', morkt: true, typ: 'skog', restid: 65, lat: 57.968, lon: 12.309, text: 'Vildmark · bäckar · gammal skog' },
+    { namn: 'Pilane, Tjörn', morkt: true, typ: 'landskap', vast: true, restid: 65, lat: 58.029, lon: 11.554, text: 'Skulpturer · ljunghed · fårbete' },
+    { namn: 'Trollhättefallen', typ: 'landskap', restid: 65, lat: 58.282, lon: 12.278, text: 'Kanjon · kraftverk · fallen släpps vissa dagar' },
+    { namn: 'Klädesholmen', typ: 'kust', vast: true, restid: 70, lat: 57.944, lon: 11.538, text: 'Sjöbodar · klippor · sillön' },
+    { namn: 'Vrångö', morkt: true, typ: 'kust', vast: true, restid: 75, lat: 57.576, lon: 11.785, text: 'Skärgård · hällar · sandstrand' },
+    { namn: 'Mollösund', morkt: true, typ: 'kust', vast: true, restid: 85, lat: 58.073, lon: 11.475, text: 'Fiskeläge · klippor · öppet hav' },
+    { namn: 'Skrea strand', typ: 'kust', vast: true, restid: 85, lat: 56.887, lon: 12.504, text: 'Långgrund sandstrand · horisont' },
+    { namn: 'Fjällbacka', morkt: true, typ: 'kust', vast: true, restid: 100, lat: 58.599, lon: 11.283, text: 'Vetteberget · Kungsklyftan · skärgårdsutsikt' },
+    { namn: 'Hunneberg', morkt: true, typ: 'skog', restid: 105, lat: 58.345, lon: 12.431, text: 'Branter · bokskog · utsikt över Vänern' },
+    { namn: 'Vitlycke, Tanum', typ: 'landskap', restid: 105, lat: 58.701, lon: 11.341, text: 'Hällristningar · världsarv' },
+    { namn: 'Ramsvikslandet', morkt: true, typ: 'kust', vast: true, restid: 110, lat: 58.421, lon: 11.248, text: 'Röd granit · Tjurpannan · öppet hav' },
+    { namn: 'Södra Bullaresjön', morkt: true, typ: 'sjö', restid: 110, lat: 58.705, lon: 11.569, text: 'Höstfärger · stilla vatten · spegling' },
+    { namn: 'Stångehuvud, Lysekil', typ: 'kust', vast: true, restid: 110, lat: 58.271, lon: 11.414, text: 'Röda granithällar · öppet hav' },
+    { namn: 'Smögen', typ: 'kust', vast: true, restid: 115, lat: 58.354, lon: 11.226, text: 'Klippor · fiskeläge · solnedgång' },
+    // Söderåsen i Skåne – ligger utanför 2 timmar och visas bara om MAX_RESTID höjs
+    { namn: 'Klöva hallar', typ: 'skog', restid: 170, lat: 56.081, lon: 13.120, text: 'Ravin · bokskog · branta klippväggar' }
+  ];
+  // Vägbeskrivning med bil i Apple Kartor från sidans plats (öppnar Kartor-appen på iPaden)
+  function routeUrl(pl) {
+    return 'https://maps.apple.com/?saddr=' + lat + ',' + lon + '&daddr=' + pl.lat + ',' + pl.lon + '&dirflg=d';
+  }
+  function restText(m) { return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + pad(m % 60) + ' min' : ''); }
+  var fSeries = [], fDay = 0, fDayAuto = true;
+
+  // Sol- och månposition (förenklade astronomiska formler; solen ~0,1°, månen ~1° noggrannhet)
+  var RAD = Math.PI / 180;
+  function jdays(t) { return t.getTime() / 86400000 - 10957.5; }   // dagar sedan J2000
+  // Rektascension/deklination -> [höjd, azimut från norr] i grader för sidans plats
+  function horizontal(ra, dec, d) {
+    var gmst = (18.697374558 + 24.06570982441908 * d) % 24;
+    var ha = (gmst * 15 + lon) * RAD - ra, phi = lat * RAD;
+    var alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(ha));
+    var az = Math.atan2(Math.sin(ha), Math.cos(ha) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
+    return [alt / RAD, (az / RAD + 540) % 360];
+  }
+  function sunPos(t) {
+    var d = jdays(t);
+    var g = (357.529 + 0.98560028 * d) * RAD, q = 280.459 + 0.98564736 * d;
+    var L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * RAD;
+    var e = (23.439 - 0.00000036 * d) * RAD;
+    return horizontal(Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), Math.asin(Math.sin(e) * Math.sin(L)), d);
+  }
+  function sunElev(t) { return sunPos(t)[0]; }
+  function moonPos(t) {
+    var d = jdays(t), e = 23.4397 * RAD;
+    var L = (218.316 + 13.176396 * d) * RAD, M = (134.963 + 13.064993 * d) * RAD, F = (93.272 + 13.229350 * d) * RAD;
+    var D = (297.850 + 12.190749 * d) * RAD, Ms = (357.529 + 0.98560028 * d) * RAD;   // elongation, solens anomali
+    var l = L + RAD * (6.289 * Math.sin(M) + 1.274 * Math.sin(2 * D - M) + 0.658 * Math.sin(2 * D) +
+                       0.214 * Math.sin(2 * M) - 0.186 * Math.sin(Ms) - 0.114 * Math.sin(2 * F));
+    var b = RAD * (5.128 * Math.sin(F) + 0.281 * Math.sin(M + F) + 0.278 * Math.sin(M - F) + 0.173 * Math.sin(2 * D - F));
+    var ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
+    var dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
+    return horizontal(ra, dec, d);
+  }
+  var COMPASS = ['N', 'NNO', 'NO', 'ONO', 'O', 'OSO', 'SO', 'SSO', 'S', 'SSV', 'SV', 'VSV', 'V', 'VNV', 'NV', 'NNV'];
+  function compass(az) { return COMPASS[Math.round(az / 22.5) % 16] + ' ' + Math.round(az) + '°'; }
+  // Tider då solen passerar -6° (blå timme börjar), -4° (gyllene börjar), horisonten och +6°
+  var SUN_TH = [-6, -4, -0.833, 6];
+  function sunEvents(d0) {
+    var ev = { up: [], dn: [], max: -90 }, prev = sunElev(d0);
+    for (var m = 2; m <= 1440; m += 2) {
+      var t = new Date(d0.getTime() + m * 60000), e = sunElev(t);
+      for (var i = 0; i < SUN_TH.length; i++) {
+        if (prev < SUN_TH[i] && e >= SUN_TH[i]) ev.up[i] = t;
+        if (prev >= SUN_TH[i] && e < SUN_TH[i]) ev.dn[i] = t;
+      }
+      if (e > ev.max) ev.max = e;
+      prev = e;
+    }
+    return ev;
+  }
+  function dayStart(k) {
+    var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + k); return d;
+  }
+  // Prognospunkt närmast tiden t (inom 90 min), annars null
+  function at(t, series) {
+    series = series || fSeries;
+    var best = null, bd = 5400000;
+    for (var i = 0; i < series.length; i++) {
+      var dt = Math.abs(series[i].t.getTime() - t.getTime());
+      if (dt <= bd) { bd = dt; best = series[i].d; }
+    }
+    return best;
+  }
+  function between(a, b, series) {
+    series = series || fSeries;
+    var out = [];
+    for (var i = 0; i < series.length; i++) {
+      var x = series[i].t.getTime();
+      if (x >= a.getTime() && x <= b.getTime()) out.push(series[i].d);
+    }
+    return out;
+  }
+  function avg(list, f) {
+    var s = 0;
+    for (var i = 0; i < list.length; i++) s += list[i][f];
+    return list.length ? s / list.length : 0;
+  }
+  function range(a, b) { return a && b ? hm(a) + ' – ' + hm(b) : '–'; }
+  function line(icon, label, val, why) {
+    return '<div class="fl"><span class="fi">' + icon + '</span>' + label + ': <b>' + val + '</b>' +
+           (why ? ' <span class="why">' + why + '</span>' : '') + '</div>';
+  }
+  function windWord(w) { return w < 1 ? 'stilla' : w < 4 ? 'svag' : w < 8 ? 'måttlig' : w < 14 ? 'frisk' : 'hård'; }
+  function lightWord(elev, octas) {
+    if (elev < -6) return 'Mörkt';
+    if (elev < -4) return 'Blå timme';
+    if (elev < 6) return octas <= 6 ? 'Gyllene' : 'Lågt, mjukt';
+    if (octas >= 7) return 'Mjukt';
+    if (octas >= 3) return 'Växlande';
+    return elev < 20 ? 'Sidljus' : 'Hårt';
+  }
+  // Chans till färgsatt himmel vid sol upp/ned, utifrån molnlagren vid den tiden
+  function colorChance(t, series) {
+    var d = t && at(t, series);
+    if (!d) return null;
+    var low = d.low_type_cloud_area_fraction, up = Math.max(d.medium_type_cloud_area_fraction, d.high_type_cloud_area_fraction);
+    if (d.precipitation_amount_mean > 0.2) return ['låg', 'nederbörd'];
+    if (low >= 6) return ['låg', 'låga moln'];
+    if (up >= 2 && up <= 7 && low <= 3) return ['hög', 'höga moln färgas'];
+    if (d.cloud_area_fraction <= 1) return ['måttlig', 'klar himmel'];
+    return ['måttlig', ''];
+  }
+
+  // Månfas: [symbol, belyst andel i %, tilltagande/avtagande]
+  function moon(t) {
+    var syn = 29.530588853, age = ((t.getTime() / 86400000 - 10962.26) % syn + syn) % syn;  // nymåne 2000-01-06
+    var ill = Math.round((1 - Math.cos(2 * Math.PI * age / syn)) / 2 * 100);
+    var icons = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
+    return [icons[Math.round(age / syn * 8) % 8], ill, ill > 97 ? 'fullmåne' : ill < 3 ? 'nymåne' : age < syn / 2 ? 'tilltagande' : 'avtagande'];
+  }
+
+  // Fotoförhållanden under dagsljus för en tidsserie (Göteborg eller en fotoplats)
+  function conditions(series, d0, ev) {
+    var rise = ev.up[2], set = ev.dn[2];
+    var dayFrom = rise || new Date(d0.getTime() + 9 * 3600000), dayTo = set || new Date(d0.getTime() + 15 * 3600000);
+    var c = { dl: between(dayFrom, dayTo, series) }, dl = c.dl, i;
+    if (!dl.length) return c;
+    c.oct = avg(dl, 'cloud_area_fraction'); c.wind = avg(dl, 'wind_speed');
+    c.lowC = avg(dl, 'low_type_cloud_area_fraction');
+    c.upC = Math.max(avg(dl, 'medium_type_cloud_area_fraction'), avg(dl, 'high_type_cloud_area_fraction'));
+    c.vis = avg(dl, 'visibility_in_air'); c.rainP = 0; c.rainMm = 0; c.tMax = -99;
+    for (i = 0; i < dl.length; i++) {
+      c.rainP = Math.max(c.rainP, dl[i].probability_of_precipitation || 0);
+      c.rainMm += dl[i].precipitation_amount_mean || 0;
+      c.tMax = Math.max(c.tMax, dl[i].air_temperature);
+    }
+    // Dimma: morgontimmarna kring soluppgång
+    c.fog = '–';
+    if (rise) {
+      var mo = between(new Date(rise.getTime() - 3 * 3600000), new Date(rise.getTime() + 2 * 3600000), series);
+      if (mo.length) {
+        var minVis = 99, maxRh = 0, minW = 99, fogSym = false;
+        for (i = 0; i < mo.length; i++) {
+          minVis = Math.min(minVis, mo[i].visibility_in_air); maxRh = Math.max(maxRh, mo[i].relative_humidity);
+          minW = Math.min(minW, mo[i].wind_speed); if (mo[i].symbol_code === 7) fogSym = true;
+        }
+        c.fog = fogSym || minVis < 1 ? 'hög' : minVis < 4 || (maxRh >= 95 && minW < 3) ? 'måttlig' : 'låg';
+      }
+    }
+    // Spegling: vind under de gyllene timmarna
+    var gw = [];
+    if (ev.up[1] && ev.up[3]) gw = gw.concat(between(ev.up[1], ev.up[3], series));
+    if (ev.dn[3] && ev.dn[1]) gw = gw.concat(between(ev.dn[3], ev.dn[1], series));
+    if (!gw.length) gw = dl;
+    c.gWind = 99;
+    for (i = 0; i < gw.length; i++) c.gWind = Math.min(c.gWind, gw[i].wind_speed);
+    c.riseC = colorChance(rise, series); c.setC = colorChance(set, series);
+    var noon = at(new Date(d0.getTime() + 13 * 3600000), series) || dl[Math.floor(dl.length / 2)];
+    c.sym = noon.symbol_code;
+    return c;
+  }
+
+  function renderFoto() {
+    if (!fSeries.length) return;
+    var now = new Date();
+    // Efter solnedgång visas morgondagen som förval
+    if (fDayAuto) {
+      var evToday = sunEvents(dayStart(0));
+      fDay = evToday.dn[2] && now > evToday.dn[2] ? 1 : 0;
+    }
+    var d0 = dayStart(fDay), ev = sunEvents(d0);
+    var rise = ev.up[2], set = ev.dn[2];
+    var dName = fDay === 0 ? 'idag' : fDay === 1 ? 'i morgon' : DAYS[d0.getDay()];
+    $('fDayName').innerHTML = cap(DAYS[d0.getDay()]) + (fDay === 0 ? ' (idag)' : '');
+
+    // Dagväljare: de dagar som har timprognos
+    var dh = '';
+    for (var k = 0; k < 3; k++) {
+      var lab = k === 0 ? 'Idag' : k === 1 ? 'I morgon' : cap(DAYS[dayStart(k).getDay()].substr(0, 3));
+      dh += '<span data-day="' + k + '"' + (k === fDay ? ' class="on"' : '') + '>' + lab + '</span>';
+    }
+    $('fDays').innerHTML = dh;
+
+    // Fotoförhållanden under dagsljus
+    var home = conditions(fSeries, d0, ev), dl = home.dl;
+    var oct = home.oct, wind = home.wind, lowC = home.lowC, upC = home.upC, vis = home.vis;
+    var rainP = home.rainP, rainMm = home.rainMm, fog = home.fog, gWind = home.gWind;
+    var c = '';
+    if (!dl.length) {
+      c = '<div class="fl">Dagsljuset är slut för ' + dName + '.</div>';
+    } else {
+      var light = oct <= 2 ? 'klart, kontrastrikt' : oct <= 5 ? 'växlande, dramatiskt' : oct <= 7 ? 'mjukt' : 'mjukt, diffust';
+      if (ev.max < 15 && oct <= 6) light += ', lågt och varmt';
+      c += line('☀️', 'Ljus', light);
+      c += line('💨', 'Vind', Math.round(wind) + ' m/s (' + windWord(Math.round(wind)) + ')');
+      c += line('☁️', 'Moln', Math.round(oct / 8 * 100) + ' %',
+                lowC >= upC ? (lowC >= 1 ? 'mest låga' : '') : 'mest höga');
+      c += line('👁', 'Sikt', vis >= 20 ? 'mycket god' : vis >= 10 ? 'god' : vis >= 4 ? 'måttlig, dis' : 'dålig', Math.round(vis) + ' km');
+      c += line('🌫', 'Chans till dimma', fog, fog !== '–' ? 'morgon' : '');
+      c += line('🌧', 'Regnrisk', rainP + ' %', rainMm >= 0.1 ? Math.round(rainMm * 10) / 10 + ' mm' : 'uppehåll');
+      c += line('💧', 'Spegling', gWind < 2 ? 'goda' : gWind < 4 ? 'möjliga' : 'små', 'vind ' + Math.round(gWind) + ' m/s');
+    }
+    $('fCond').innerHTML = c;
+
+    // Bäst ljus
+    var riseC = home.riseC, setC = home.setC;
+    var l = '';
+    l += line('🔵', 'Blå timme', range(ev.up[0], ev.up[1]), 'morgon');
+    l += line('🌅', 'Soluppgång', rise ? hm(rise) : '–', rise ? compass(sunPos(rise)[1]) + (riseC ? ' · färger ' + riseC[0] : '') : '');
+    if (ev.max < 6) {
+      l += line('✨', 'Gyllene ljus', 'hela dagen');
+    } else {
+      l += line('✨', 'Morgonljus', range(ev.up[1], ev.up[3]));
+      l += line('✨', 'Kvällsljus', range(ev.dn[3], ev.dn[1]));
+    }
+    l += line('🌇', 'Solnedgång', set ? hm(set) : '–', set ? compass(sunPos(set)[1]) + (setC ? ' · färger ' + setC[0] : '') : '');
+    l += line('🔵', 'Blå timme', range(ev.dn[1], ev.dn[0]), 'kväll');
+    if (rise && set) {
+      var len = Math.round((set - rise) / 60000);
+      l += line('🕒', 'Dagsljus', Math.floor(len / 60) + ' h ' + pad(len % 60) + ' min', 'solen max ' + Math.round(ev.max) + '°');
+    }
+    var mn = moon(new Date(d0.getTime() + 22 * 3600000));
+    l += line(mn[0], 'Måne', mn[1] + ' %', mn[2]);
+    $('fLight').innerHTML = l;
+
+    // Väder & ljus i 2-timmarsintervall, från strax före soluppgång till strax efter solnedgång
+    var h0 = rise ? Math.floor((rise.getHours() - 1) / 2) * 2 : 8, h1 = set ? set.getHours() + 2 : 18;
+    var tiles = '';
+    for (var hh = Math.max(h0, 0), n = 0; hh < h1 && n < 6; hh += 2, n++) {
+      var mid = new Date(d0.getTime() + (hh + 1) * 3600000), x = at(mid), past = mid < now && fDay === 0;
+      var lw = lightWord(sunElev(mid), x ? x.cloud_area_fraction : 8);
+      // Visa gyllene/blå timme om den inträffar någon gång inom intervallet
+      for (var sm = 0; sm <= 120; sm += 20) {
+        var se = sunElev(new Date(d0.getTime() + (hh * 60 + sm) * 60000));
+        if (se >= -4 && se < 6 && (!x || x.cloud_area_fraction <= 6)) { lw = 'Gyllene'; break; }
+        if (se >= -6 && se < -4 && lw !== 'Gyllene') lw = 'Blå timme';
+      }
+      tiles += '<div class="tile' + (past ? ' past' : '') + '"><div class="t">' + pad(hh) + '–' + pad(hh + 2) + '</div>' +
+               '<div class="i">' + (x ? sym(x.symbol_code, lw === 'Mörkt' || lw === 'Blå timme' ? 0 : 12)[0] : '–') + '</div>' +
+               '<div class="v">' + (x ? deg(x.air_temperature) : '') + '</div>' +
+               '<div class="s' + (lw === 'Gyllene' || lw === 'Blå timme' ? ' gold' : '') + '">' + lw + '</div></div>';
+    }
+    $('fTiles').innerHTML = tiles;
+
+    // Utflyktstips: platserna rangordnas efter förhållandena på respektive plats
+    var tips = [], score, why;
+    var add = function (pts, text) { score += pts; if (!why && pts > 0) why = text; };
+    if (dl.length) {
+      for (var p = 0; p < PLATSER.length; p++) {
+        var pl = PLATSER[p];
+        if (pl.restid > MAX_RESTID) continue;
+        // Idag: hoppa över platser man inte hinner till minst en halvtimme före solnedgång
+        if (fDay === 0 && set && now.getTime() + (pl.restid + 30) * 60000 > set.getTime()) continue;
+        // Platsens egen prognos om den hunnit hämtas, annars Göteborgs
+        var pc = placeSeries[p] ? conditions(placeSeries[p], d0, ev) : null;
+        var own = !!(pc && pc.dl.length);
+        if (!own) pc = home;
+        score = 0; why = '';
+        if (pl.typ === 'sjö') {
+          if (pc.gWind < 3) add(3, 'Vindstilla – bra för spegling');
+          if (pc.fog === 'hög' || pc.fog === 'måttlig') add(2, 'Chans till morgondimma över vattnet');
+          if (d0.getMonth() >= 8 && d0.getMonth() <= 9) add(1, 'Höstfärger runt sjön');
+          if (pc.oct > 6) add(0.5, 'Mjukt ljus – mättade färger i vegetationen');
+        } else if (pl.typ === 'kust') {
+          if (pl.vast && pc.setC && pc.setC[0] === 'hög') add(3, 'Goda chanser till färgsatt solnedgång');
+          if (pc.wind >= 8) add(2, 'Blåsigt – vågor och dramatik');
+          if (pc.oct >= 3 && pc.oct <= 6) add(1, 'Dramatiska moln över havet');
+          if (pl.vast && pc.setC && pc.setC[0] === 'måttlig') add(1, 'Kvällsljus mot havet');
+          if (pc.oct > 6) add(0.5, 'Mulet – fokusera på textur och former i hällarna');
+        } else if (pl.typ === 'skog') {
+          if (pc.oct >= 6) add(2, 'Mjukt ljus – bra i skogen');
+          if (pc.fog === 'hög' || pc.fog === 'måttlig') add(2, 'Dimma mellan träden');
+        } else if (pl.typ === 'landskap') {
+          if (pl.vast && pc.setC && pc.setC[0] === 'hög') add(3, 'Goda chanser till färgsatt solnedgång');
+          if (pc.oct >= 3 && pc.oct <= 6) add(2, 'Dramatiska moln över landskapet');
+          if (pc.fog === 'hög' || pc.fog === 'måttlig') add(1, 'Chans till dimma i morgonljuset');
+          if (ev.max < 20 && pc.oct <= 5) add(1, 'Lågt sidljus ger djup och textur');
+          if (pc.oct > 6) add(0.5, 'Mulet – passar stämningsbilder');
+        }
+        if (own && pc.oct <= oct - 2) add(1, 'Mindre moln än i Göteborg');
+        if (own && pc.rainP <= rainP - 30) add(1, 'Torrare än i Göteborg');
+        if (pc.rainP >= 70) score -= 2;
+        else if (pc.rainP >= 40) score -= 1;
+        score -= pl.restid / 300;      // vid lika förhållanden vinner den närmare platsen
+        tips.push({ p: pl, score: score, why: why, c: own ? pc : null });
+      }
+      tips.sort(function (a, b) { return b.score - a.score; });
+    }
+    var th = '';
+    for (var q = 0; q < tips.length && q < 3; q++) {
+      var tc = tips[q].c;
+      th += '<a class="tip row" href="' + routeUrl(tips[q].p) + '" target="_blank"><div class="grow">' +
+            '<div class="row"><div class="tn grow">' + tips[q].p.namn + '</div>' +
+            (tc ? '<div class="tw">' + sym(tc.sym, 12)[0] + ' ' + deg(tc.tMax) + ' · ' + Math.round(tc.wind) + ' m/s' +
+                  (tc.rainP >= 20 ? ' · <span class="rain">' + tc.rainP + ' %</span>' : '') + '</div>' : '') + '</div>' +
+            '<div class="td">' + tips[q].p.text + ' · 🚗 ' + restText(tips[q].p.restid) + '</div>' +
+            (tips[q].why ? '<div class="tr">' + tips[q].why + '</div>' : '') + '</div><div class="chev">›</div></a>';
+    }
+    $('fTips').innerHTML = th || '<div class="fl">Inga tips för ' + dName + '.</div>';
+  }
+
+  // Hämta prognos för fotoplatserna en i taget i bakgrunden (skonsamt för gamla iPaden)
+  var placeSeries = [];
+  function smhiUrl(la, lo) {
+    return 'https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1/geotype/point/lon/' +
+           lo.toFixed(4) + '/lat/' + la.toFixed(4) + '/data.json';
+  }
+  function parseSeries(json, days) {
+    var now = Date.now(), until = now + days * 86400000, out = [];
+    for (var i = 0; i < json.timeSeries.length; i++) {
+      var t = parseTime(json.timeSeries[i].time);
+      if (t.getTime() > now - 3600000 && t.getTime() < until) out.push({ t: t, d: json.timeSeries[i].data });
+    }
+    return out;
+  }
+  function loadPlaces(i) {
+    i = i || 0;
+    if (i >= PLATSER.length) { renderFoto(); renderNatt(); return; }
+    if (PLATSER[i].restid > MAX_RESTID) return loadPlaces(i + 1);
+    getJSON(smhiUrl(PLATSER[i].lat, PLATSER[i].lon), function (json) {
+      placeSeries[i] = parseSeries(json, 3.5);
+      setTimeout(function () { loadPlaces(i + 1); }, 1000);
+    }, function () {
+      setTimeout(function () { loadPlaces(i + 1); }, 1000);   // behåll ev. tidigare data
+    });
+  }
+
+  // ---- Nattläge: mörker, måne, molnighet och norrsken ----
+  var nDay = 0, kpData = [];
+  function loadKp() {
+    getJSON('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json', function (j) {
+      var out = [];
+      for (var i = 0; i < j.length; i++) {
+        var r = j[i], tt = r.time_tag || r[0], kp = r.kp !== undefined ? r.kp : r[1];
+        if (!tt || isNaN(parseFloat(kp))) continue;        // hoppa över ev. rubrikrad
+        out.push({ t: parseTime(tt.replace(' ', 'T')), kp: parseFloat(kp) });
+      }
+      kpData = out;
+      renderNatt();
+    }, function () {});
+  }
+  function kpWord(k) {
+    return k < 3 ? ['mycket låg', ''] : k < 4 ? ['låg', ''] : k < 5 ? ['liten', 'i kameran mot norr'] :
+           k < 6 ? ['möjlig', 'lågt i norr'] : k < 7 ? ['god', 'titta mot norr'] : ['mycket god', 'kan nå högt'];
+  }
+  // Nattens timmar (från d0 kl 12 till nästa dag kl 12): sol, måne och mörker
+  function nightInfo(d0) {
+    var w0 = d0.getTime() + 12 * 3600000, ni = { ev: {}, hours: [] }, ev = ni.ev;
+    var mn = moon(new Date(w0 + 12 * 3600000));
+    ni.moon = mn; ni.moonWeak = mn[1] < 20;
+    var ps = sunElev(new Date(w0)), pm = moonPos(new Date(w0))[0], minSun = 90;
+    var runStart = null, best = null;
+    // Tidpunkt då ett värde passerar gränsen, interpolerad mellan två 5-minuterssteg
+    var cross = function (t, prev, cur, thr) { return new Date(t.getTime() - 300000 * (cur - thr) / (cur - prev)); };
+    for (var m = 5; m <= 1440; m += 5) {
+      var t = new Date(w0 + m * 60000), sa = sunElev(t), mp = moonPos(t), ma = mp[0];
+      if (ps >= -0.833 && sa < -0.833) ev.set = cross(t, ps, sa, -0.833);
+      if (ps < -0.833 && sa >= -0.833) ev.rise = cross(t, ps, sa, -0.833);
+      if (ps >= -12 && sa < -12) ev.nautDusk = cross(t, ps, sa, -12);
+      if (ps < -12 && sa >= -12) ev.nautDawn = cross(t, ps, sa, -12);
+      if (ps >= -18 && sa < -18) ev.astroDusk = cross(t, ps, sa, -18);
+      if (ps < -18 && sa >= -18) ev.astroDawn = cross(t, ps, sa, -18);
+      if (pm < 0.125 && ma >= 0.125 && !ev.moonRise) { ev.moonRise = cross(t, pm, ma, 0.125); ev.moonRiseAz = mp[1]; }
+      if (pm >= 0.125 && ma < 0.125 && !ev.moonSet) ev.moonSet = cross(t, pm, ma, 0.125);
+      minSun = Math.min(minSun, sa);
+      ps = sa; pm = ma;
+    }
+    // Mörkergräns: astronomiskt mörker om det finns, annars nautiskt (ljusa sommarnätter)
+    ni.darkThr = minSun < -18 ? -18 : minSun < -12 ? -12 : null;
+    for (m = 0; m <= 1440; m += 10) {
+      t = new Date(w0 + m * 60000);
+      var ok = ni.darkThr !== null && sunElev(t) < ni.darkThr && (ni.moonWeak || moonPos(t)[0] < 0);
+      if (ok && runStart === null) runStart = t;
+      if ((!ok || m === 1440) && runStart !== null) {
+        if (!best || t - runStart > best[1] - best[0]) best = [runStart, t];
+        runStart = null;
+      }
+    }
+    ni.moonFree = best;
+    for (var h = 0; h < 24; h++) {
+      var mid = new Date(w0 + (h + 0.5) * 3600000), sAlt = sunElev(mid);
+      ni.hours.push({ t: mid, sun: sAlt, dark: ni.darkThr !== null && sAlt < ni.darkThr,
+                      moonUp: moonPos(mid)[0] > 0, night: sAlt < -12 });
+    }
+    return ni;
+  }
+  // Stjärnförhållanden för en tidsserie under nattens timmar
+  function nightStats(series, ni) {
+    var st = { good: 0, clearMoon: 0, cloud: 0, n: 0, minT: 99, maxRh: 0, minW: 99, first: null };
+    for (var i = 0; i < ni.hours.length; i++) {
+      var h = ni.hours[i];
+      if (!h.night) continue;
+      var x = at(h.t, series);
+      if (!x) continue;
+      st.n++; st.cloud += x.cloud_area_fraction;
+      st.minT = Math.min(st.minT, x.air_temperature); st.maxRh = Math.max(st.maxRh, x.relative_humidity);
+      st.minW = Math.min(st.minW, x.wind_speed);
+      if (h.dark && x.cloud_area_fraction <= 2) {
+        if (ni.moonWeak || !h.moonUp) { st.good++; if (!st.first) st.first = h.t; } else st.clearMoon++;
+      }
+    }
+    st.cloud = st.n ? st.cloud / st.n : 8;
+    return st;
+  }
+
+  function renderNatt() {
+    if (!fSeries.length) return;
+    var now = new Date(), base = now.getHours() < 6 ? -1 : 0;
+    var d0 = dayStart(base + nDay), d1 = dayStart(base + nDay + 1), ni = nightInfo(d0), ev = ni.ev;
+    $('nDayName').innerHTML = cap(DAYS[d0.getDay()]) + ' → ' + DAYS[d1.getDay()];
+    var dh = '';
+    for (var k = 0; k < 3; k++) {
+      var a = dayStart(base + k), b = dayStart(base + k + 1);
+      dh += '<span data-nday="' + k + '"' + (k === nDay ? ' class="on"' : '') + '>' +
+            (k === 0 ? 'I natt' : cap(DAYS[a.getDay()].substr(0, 3)) + '–' + DAYS[b.getDay()].substr(0, 3)) + '</span>';
+    }
+    $('nDays').innerHTML = dh;
+
+    // Mörker & måne
+    var mn = ni.moon, l = '';
+    l += line('🌇', 'Solnedgång', ev.set ? hm(ev.set) : '–', ev.set ? compass(sunPos(ev.set)[1]) : '');
+    if (ni.darkThr === -18) l += line('🌌', 'Astronomiskt mörker', range(ev.astroDusk, ev.astroDawn));
+    else if (ni.darkThr === -12) l += line('🌌', 'Mörker', range(ev.nautDusk, ev.nautDawn), 'bara nautiskt, ljus natt');
+    else l += line('🌌', 'Mörker', 'inget', 'ljus sommarnatt');
+    l += line(mn[0], 'Måne', mn[1] + ' %', mn[2]);
+    l += line('⬆️', 'Månuppgång', ev.moonRise ? hm(ev.moonRise) : '–', ev.moonRise ? compass(ev.moonRiseAz) : '');
+    l += line('⬇️', 'Månnedgång', ev.moonSet ? hm(ev.moonSet) : '–');
+    l += line('✨', 'Månfritt mörker', ni.darkThr === null ? '–' : ni.moonWeak ? 'hela natten' : ni.moonFree ? range(ni.moonFree[0], ni.moonFree[1]) : 'inget',
+              ni.moonWeak && ni.darkThr !== null ? 'svag måne' : '');
+    l += line('🌅', 'Soluppgång', ev.rise ? hm(ev.rise) : '–', ev.rise ? compass(sunPos(ev.rise)[1]) : '');
+    $('nDark').innerHTML = l;
+
+    // Förhållanden i natt (Göteborg)
+    var st = nightStats(fSeries, ni), c = '';
+    if (!st.n) {
+      $('nCond').innerHTML = '<div class="fl">Ingen prognos för den här natten ännu.</div>';
+    } else {
+      c += line('☁️', 'Moln', Math.round(st.cloud / 8 * 100) + ' %', 'under mörkret');
+      var grade = st.good >= 4 ? 'utmärkt' : st.good >= 2 ? 'bra' : st.good === 1 ? 'möjlig' :
+                  st.clearMoon ? 'månljust' : ni.darkThr === null ? 'för ljust' : 'molnigt';
+      c += line('🌠', 'Stjärnfoto', grade, st.good ? st.good + ' klara mörka timmar' : st.clearMoon ? 'klart men månen är uppe' : '');
+      var kpMax = -1;
+      for (var i = 0; i < kpData.length; i++) {
+        var kt = kpData[i].t.getTime();
+        if (kt + 3 * 3600000 > d0.getTime() + 18 * 3600000 && kt < d0.getTime() + 30 * 3600000) kpMax = Math.max(kpMax, kpData[i].kp);
+      }
+      if (kpMax >= 0) {
+        var kw = kpWord(kpMax);
+        c += line('🟢', 'Norrsken', kw[0], 'Kp ' + Math.round(kpMax) + (kw[1] ? ' · ' + kw[1] : '') + (kpMax >= 5 && st.cloud >= 7 ? ', men molnigt' : ''));
+      } else {
+        c += line('🟢', 'Norrsken', '–', 'prognos saknas');
+      }
+      c += line('💧', 'Dagg på linsen', st.maxRh >= 95 && st.minW < 3 ? 'hög' : st.maxRh >= 88 ? 'måttlig' : 'låg', 'fukt ' + Math.round(st.maxRh) + ' %');
+      c += line('🌡', 'Kallast', deg(st.minT), st.minT <= 0 ? 'risk för frost' : '');
+      $('nCond').innerHTML = c;
+    }
+
+    // Natten i 2-timmarsintervall från solnedgången
+    var h0 = ev.set ? Math.floor(ev.set.getHours() / 2) * 2 : 18, tiles = '';
+    for (var n = 0; n < 6; n++) {
+      var hh = h0 + n * 2, mid = new Date(d0.getTime() + (hh + 1) * 3600000), x = at(mid), sa = sunElev(mid);
+      var moonUp = moonPos(mid)[0] > 0, lw, good = false;
+      if (sa > -6) lw = hh < 12 || hh >= 24 ? 'Gryning' : 'Skymning';
+      else if (ni.darkThr === null || sa > ni.darkThr) lw = 'Halvmörkt';
+      else if (!x) lw = 'Mörkt';
+      else if (x.cloud_area_fraction <= 2) { good = ni.moonWeak || !moonUp; lw = good ? 'Stjärnklart' : 'Månsken'; }
+      else lw = x.cloud_area_fraction <= 5 ? 'Halvklart' : 'Molnigt';
+      tiles += '<div class="tile' + (mid < now ? ' past' : '') + '"><div class="t">' + pad(hh % 24) + '–' + pad((hh + 2) % 24) + '</div>' +
+               '<div class="i">' + (x ? sym(x.symbol_code, sa < -0.833 ? 0 : 12)[0] : '–') + '</div>' +
+               '<div class="v">' + (x ? Math.round(x.cloud_area_fraction / 8 * 100) + '<span class="muted" style="font-size:16px"> %</span>' : '') + '</div>' +
+               '<div class="s' + (good ? ' gold' : '') + '">' + lw + (moonUp && !ni.moonWeak && sa < -6 ? ' ' + mn[0] : '') + '</div></div>';
+    }
+    $('nTiles').innerHTML = tiles;
+
+    // Mörka platser med klarast himmel i natt
+    var tips = [];
+    for (var p = 0; p < PLATSER.length; p++) {
+      var pl = PLATSER[p];
+      if (!pl.morkt || pl.restid > MAX_RESTID || !placeSeries[p]) continue;
+      var ps = nightStats(placeSeries[p], ni);
+      if (!ps.n) continue;
+      var why = ps.good ? ps.good + ' klara mörka timmar' + (ps.first ? ', från kl ' + pad(ps.first.getHours()) : '') :
+                ps.clearMoon ? 'Klart men månljust – landskap i månsken' : 'Molnigt';
+      if (kpMax >= 5 && ps.cloud <= 4) why += ' · chans till norrsken';
+      tips.push({ p: pl, st: ps, why: why, score: ps.good + ps.clearMoon * 0.3 - ps.cloud / 8 - pl.restid / 300 });
+    }
+    tips.sort(function (a, b) { return b.score - a.score; });
+    var th = '';
+    if (tips.length && !tips[0].st.good && !tips[0].st.clearMoon && tips[0].st.cloud >= 6) {
+      $('nTips').innerHTML = '<div class="fl">☁️ Molnigt vid alla mörka platser den här natten.</div>' +
+                             '<div class="fl"><span class="why">Prova en annan natt med knapparna ovan.</span></div>';
+      return;
+    }
+    for (var q = 0; q < tips.length && q < 3; q++) {
+      var tq = tips[q];
+      th += '<a class="tip row" href="' + routeUrl(tq.p) + '" target="_blank"><div class="grow">' +
+            '<div class="row"><div class="tn grow">' + tq.p.namn + '</div>' +
+            '<div class="tw">☁️ ' + Math.round(tq.st.cloud / 8 * 100) + ' % · ' + deg(tq.st.minT) + '</div></div>' +
+            '<div class="td">' + tq.p.text + ' · 🚗 ' + restText(tq.p.restid) + '</div>' +
+            '<div class="tr">' + tq.why + '</div></div><div class="chev">›</div></a>';
+    }
+    $('nTips').innerHTML = th || '<div class="fl">Hämtar väder för platserna…</div>';
+  }
+
+  // ---- Radar (SMHI) på OpenStreetMap-karta ----
+  // SMHI:s kompositbild över Sverige: 471×887 px, UTM zon 33 (SWEREF 99 TM), 2 km per pixel
+  var RADAR_API = 'https://opendata-download-radar.smhi.se/api/version/latest/area/sweden/product/comp';
+  var RADAR_X0 = 126648.404, RADAR_Y0 = 7771252.876, RADAR_PX = 2014.958, RADAR_W = 471, RADAR_H = 887;
+  var radar = { w: 560, h: 570, z: 7, map: null, frames: {}, order: [], idx: 0, timer: null };
+  var curView = 'weather';
+
+  // Lat/lon (GRS80) -> UTM zon 33 [östlig, nordlig], Snyders formler för transversal Mercator
+  function utm33(la, lo) {
+    var a = 6378137, f = 1 / 298.257222101, e2 = f * (2 - f), ep2 = e2 / (1 - e2), k0 = 0.9996;
+    var phi = la * RAD, sn = Math.sin(phi), cs = Math.cos(phi), tn = Math.tan(phi);
+    var N = a / Math.sqrt(1 - e2 * sn * sn), T = tn * tn, C = ep2 * cs * cs, A = (lo - 15) * RAD * cs;
+    var e4 = e2 * e2, e6 = e4 * e2;
+    var M = a * ((1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256) * phi - (3 * e2 / 8 + 3 * e4 / 32 + 45 * e6 / 1024) * Math.sin(2 * phi) +
+                 (15 * e4 / 256 + 45 * e6 / 1024) * Math.sin(4 * phi) - (35 * e6 / 3072) * Math.sin(6 * phi));
+    return [500000 + k0 * N * (A + (1 - T + C) * Math.pow(A, 3) / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * Math.pow(A, 5) / 120),
+            k0 * (M + N * tn * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * Math.pow(A, 4) / 24 +
+                                (61 - 58 * T + T * T + 600 * C - 330 * ep2) * Math.pow(A, 6) / 720))];
+  }
+  // Kartbrickor och en uppslagstabell kartpixel -> radarpixel (räknas en gång, i halv upplösning)
+  function initRadarMap() {
+    if (radar.map) return;
+    var n = 256 * Math.pow(2, radar.z), W = radar.w, H = radar.h;
+    var cx = (lon + 180) / 360 * n, cy = (1 - Math.log(Math.tan(lat * RAD) + 1 / Math.cos(lat * RAD)) / Math.PI) / 2 * n;
+    var x0 = cx - W / 2, y0 = cy - H / 2, box = $('rMap'), first = box.firstChild;
+    for (var tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + W) / 256); tx++) {
+      for (var ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + H) / 256); ty++) {
+        var img = document.createElement('img');
+        img.src = 'https://tile.openstreetmap.org/' + radar.z + '/' + tx + '/' + ty + '.png';
+        img.style.left = Math.round(tx * 256 - x0) + 'px'; img.style.top = Math.round(ty * 256 - y0) + 'px';
+        box.insertBefore(img, first);
+      }
+    }
+    $('rMark').style.left = W / 2 + 'px'; $('rMark').style.top = H / 2 + 'px';
+    var cw = W / 2, ch = Math.round(H / 2), map = [];
+    $('rCanvas').width = cw; $('rCanvas').height = ch;
+    for (var j = 0; j < ch; j++) {
+      for (var i = 0; i < cw; i++) {
+        var wx = x0 + (i + 0.5) * 2, wy = y0 + (j + 0.5) * 2, k = Math.PI * (1 - 2 * wy / n);
+        var la = Math.atan((Math.exp(k) - Math.exp(-k)) / 2) / RAD, lo = wx / n * 360 - 180, u = utm33(la, lo);
+        var sx = Math.floor((u[0] - RADAR_X0) / RADAR_PX), sy = Math.floor((RADAR_Y0 - u[1]) / RADAR_PX);
+        map.push(sx >= 0 && sx < RADAR_W && sy >= 0 && sy < RADAR_H ? sy * RADAR_W + sx : -1);
+      }
+    }
+    radar.map = map; radar.cw = cw; radar.ch = ch;
+  }
+  // Gör om en radarbild till kartans projektion; vitt (ingen nederbörd) och grått blir genomskinligt
+  function processRadar(img) {
+    var src = document.createElement('canvas');
+    src.width = RADAR_W; src.height = RADAR_H;
+    var sctx = src.getContext('2d');
+    sctx.drawImage(img, 0, 0);
+    var sd = sctx.getImageData(0, 0, RADAR_W, RADAR_H).data;
+    var out = $('rCanvas').getContext('2d').createImageData(radar.cw, radar.ch), od = out.data, map = radar.map;
+    for (var k = 0; k < map.length; k++) {
+      var si = map[k] * 4;
+      if (si < 0) continue;
+      var r = sd[si], g = sd[si + 1], b = sd[si + 2];
+      if (sd[si + 3] < 10 || (Math.abs(r - g) < 14 && Math.abs(g - b) < 14)) continue;
+      od[k * 4] = r; od[k * 4 + 1] = g; od[k * 4 + 2] = b; od[k * 4 + 3] = 215;
+    }
+    return out;
+  }
+  function radarName(t) {
+    var y = '' + t.getUTCFullYear();
+    return 'radar_' + y.substr(2) + pad(t.getUTCMonth() + 1) + pad(t.getUTCDate()) + pad(t.getUTCHours()) + pad(t.getUTCMinutes());
+  }
+  function loadRadar() {
+    initRadarMap();
+    getJSON(RADAR_API + '.json', function (j) {
+      var v = j.lastFiles && j.lastFiles[0] && j.lastFiles[0].valid;           // "2026-11-01 11:45" (UTC)
+      if (!v) return;
+      var last = parseTime(v.replace(' ', 'T')), want = [];
+      for (var k = 6; k >= 0; k--) want.push(new Date(last.getTime() - k * 10 * 60000));
+      var keep = {}, queue = [];
+      for (k = 0; k < want.length; k++) {
+        var name = radarName(want[k]);
+        keep[name] = true;
+        if (!radar.frames[name]) queue.push(want[k]);
+      }
+      for (var key in radar.frames) if (!keep[key]) delete radar.frames[key];
+      radar.order = [];
+      for (k = 0; k < want.length; k++) radar.order.push(radarName(want[k]));
+      (function next() {
+        if (!queue.length) return;
+        var t = queue.shift(), nm = radarName(t), img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = function () {
+          try { radar.frames[nm] = { t: t, data: processRadar(img) }; } catch (e) {}
+          next();
+        };
+        img.onerror = next;
+        img.src = RADAR_API + '/' + t.getUTCFullYear() + '/' + pad(t.getUTCMonth() + 1) + '/' + pad(t.getUTCDate()) + '/' + nm + '.png';
+      })();
+    }, function () { $('rTime').innerHTML = 'Kunde inte hämta radar'; });
+  }
+  function animateRadar() {
+    clearTimeout(radar.timer);
+    if (curView !== 'radar') return;
+    var ready = [];
+    for (var i = 0; i < radar.order.length; i++) if (radar.frames[radar.order[i]]) ready.push(radar.frames[radar.order[i]]);
+    var delay = 400;
+    if (ready.length) {
+      radar.idx = radar.idx % ready.length;
+      var f = ready[radar.idx], lastOne = radar.idx === ready.length - 1;
+      $('rCanvas').getContext('2d').putImageData(f.data, 0, 0);
+      $('rTime').innerHTML = hm(f.t) + (lastOne ? ' · senaste' : '');
+      delay = lastOne ? 2500 : 450;
+      radar.idx++;
+    }
+    radar.timer = setTimeout(animateRadar, delay);
+  }
+
+  // ---- Vattenstånd och vågor ----
+  var OCOBS = 'https://opendata-download-ocobs.smhi.se/api/version/latest/parameter/';
+  var sea = {};
+  function dec1(x) { return (Math.round(x * 10) / 10).toFixed(1).replace('.', ','); }
+  function loadSea() {
+    var get = function (key, url) {
+      getJSON(url, function (j) { sea[key] = j; renderSea(); }, function () {});
+    };
+    get('level', OCOBS + '6/station/35120/period/latest-day/data.json');        // Göteborg-Tångudden
+    get('broH', OCOBS + '1/station/33033/period/latest-day/data.json');         // Brofjorden vågboj
+    get('broT', OCOBS + '10/station/33033/period/latest-day/data.json');
+    get('vadH', OCOBS + '1/station/33015/period/latest-day/data.json');         // Väderöarna vågboj
+    get('fc', 'https://marine-api.open-meteo.com/v1/marine?latitude=57.62&longitude=11.62' +
+              '&hourly=wave_height,wave_direction&timezone=GMT&forecast_days=2');  // utanför Vinga
+  }
+  function lastVal(j) { var v = j && j.value; return v && v.length ? v[v.length - 1] : null; }
+  function renderSea() {
+    var lv = sea.level && sea.level.value;
+    if (lv && lv.length) {
+      var cur = lv[lv.length - 1], old = lv[Math.max(0, lv.length - 4)], diff = cur.value - old.value;
+      var mn = 999, mx = -999, i;
+      for (i = 0; i < lv.length; i++) { mn = Math.min(mn, lv[i].value); mx = Math.max(mx, lv[i].value); }
+      var v = cur.value, word = v >= 80 ? 'mycket högt' : v >= 40 ? 'högt' : v <= -60 ? 'mycket lågt' : v <= -30 ? 'lågt' : 'normalt';
+      var trend = diff > 3 ? '↗ stigande' : diff < -3 ? '↘ sjunkande' : '→ stabilt';
+      // Liten kurva över senaste dygnet
+      var W = 340, H = 56, lo = Math.min(mn, -20), hi = Math.max(mx, 20), pts = [];
+      for (i = 0; i < lv.length; i++) {
+        pts.push(Math.round(i / (lv.length - 1) * W) + ',' + Math.round(H - (lv[i].value - lo) / (hi - lo) * H));
+      }
+      var zy = Math.round(H - (0 - lo) / (hi - lo) * H);
+      $('rSea').innerHTML =
+        '<div class="sea-big">' + (v > 0 ? '+' : '') + Math.round(v) + ' cm<span class="why">' + word + ' · ' + trend + '</span></div>' +
+        '<svg width="' + W + '" height="' + H + '" style="display:block;margin:6px 0 4px">' +
+        '<line x1="0" y1="' + zy + '" x2="' + W + '" y2="' + zy + '" stroke="#30363d" stroke-dasharray="4,4"/>' +
+        '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#79c0ff" stroke-width="2"/></svg>' +
+        '<div class="fl"><span class="why">Senaste dygnet ' + (mn > 0 ? '+' : '') + Math.round(mn) + ' till ' + (mx > 0 ? '+' : '') +
+        Math.round(mx) + ' cm · mätt ' + hm(new Date(cur.date)) + ' · RH 2000</span></div>';
+    }
+    var w = '', bh = lastVal(sea.broH), bt = lastVal(sea.broT), vh = lastVal(sea.vadH);
+    if (bh) {
+      var bmax = 0, bv = sea.broH.value;
+      for (var k = 0; k < bv.length; k++) bmax = Math.max(bmax, bv[k].value);
+      w += line('🌊', 'Brofjorden', dec1(bh.value) + ' m', (bt ? dec1(bt.value) + ' s · ' : '') + 'max ' + dec1(bmax) + ' m');
+    }
+    if (vh) w += line('🌊', 'Väderöarna', dec1(vh.value) + ' m', 'mätt ' + hm(new Date(vh.date)));
+    var fc = sea.fc && sea.fc.hourly;
+    if (fc && fc.time) {
+      var now = Date.now(), fmax = -1, fdir = 0, ft = null;
+      for (var q = 0; q < fc.time.length; q++) {
+        var tt = parseTime(fc.time[q]).getTime();
+        if (tt >= now && tt <= now + 12 * 3600000 && fc.wave_height[q] > fmax) { fmax = fc.wave_height[q]; fdir = fc.wave_direction[q]; ft = tt; }
+      }
+      if (fmax >= 0) w += line('🔮', 'Vinga, prognos', 'max ' + dec1(fmax) + ' m', '12 h · från ' + COMPASS[Math.round(fdir / 22.5) % 16]);
+    }
+    if (w) $('rWave').innerHTML = w + '<div class="fl"><span class="why">Signifikant våghöjd · mätt SMHI, prognos Open-Meteo</span></div>';
+  }
+
+  // ---- SMHI:s vädervarningar ----
+  // Län och havsområden som visas i listan: Västra Götaland, Halland, Kattegatt, Skagerrak, Vänern
+  var WARN_AREAS = { 14: 1, 13: 1, 56: 1, 57: 1, 58: 1 };
+  var WARN_ORDER = { RED: 4, ORANGE: 3, YELLOW: 2, MESSAGE: 1 };
+  var WARN_COLOR = { RED: '#f85149', ORANGE: '#f0883e', YELLOW: '#e3b341', MESSAGE: '#8b949e' };
+  var warnings = null;
+  function inRing(ring, x, y) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function inGeometry(g, x, y) {
+    if (!g) return false;
+    if (g.type === 'Polygon') return inRing(g.coordinates[0], x, y);
+    if (g.type === 'MultiPolygon') {
+      for (var i = 0; i < g.coordinates.length; i++) if (inRing(g.coordinates[i][0], x, y)) return true;
+    }
+    return false;
+  }
+  function loadWarnings() {
+    getJSON('https://opendata-download-warnings.smhi.se/ibww/api/version/1/warning.json', function (list) {
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        var wa = list[i].warningAreas || [];
+        for (var k = 0; k < wa.length; k++) {
+          var a = wa[k], rel = false, ids = a.affectedAreas || [];
+          for (var m = 0; m < ids.length; m++) if (WARN_AREAS[ids[m].id]) rel = true;
+          if (!rel) continue;
+          out.push({
+            level: a.warningLevel.code, levelName: a.warningLevel.sv, event: list[i].event.sv,
+            what: a.eventDescription ? a.eventDescription.sv : '', area: a.areaName ? a.areaName.sv : '',
+            start: a.approximateStart ? parseTime(a.approximateStart) : null, end: a.approximateEnd ? parseTime(a.approximateEnd) : null,
+            here: inGeometry(a.area && a.area.geometry, lon, lat)
+          });
+        }
+      }
+      out.sort(function (a, b) { return (b.here - a.here) || (WARN_ORDER[b.level] - WARN_ORDER[a.level]); });
+      warnings = out;
+      renderWarnings();
+    }, function () {});
+  }
+  function when(w) {
+    var now = new Date(), fmt = function (d) {
+      return (dayKey(d) === dayKey(now) ? 'idag' : DAYS[d.getDay()].substr(0, 3) + ' ' + d.getDate() + '/' + (d.getMonth() + 1)) + ' ' + hm(d);
+    };
+    if (w.start && w.start > now) return 'från ' + fmt(w.start) + (w.end ? ' till ' + fmt(w.end) : '');
+    return w.end ? 'pågår till ' + fmt(w.end) : 'pågår';
+  }
+  function renderWarnings() {
+    if (!warnings) return;
+    var h = '', banner = null;
+    for (var i = 0; i < warnings.length && i < 4; i++) {
+      var w = warnings[i];
+      h += '<div class="warn" style="border-left-color:' + WARN_COLOR[w.level] + '"><div class="wt">' +
+           (w.level !== 'MESSAGE' ? w.levelName + ' varning: ' : '') + w.event + (w.here ? ' · <b>gäller här</b>' : '') + '</div>' +
+           '<div class="wd">' + w.area + ' · ' + when(w) + '</div></div>';
+    }
+    if (warnings.length > 4) h += '<div class="fl"><span class="why">+ ' + (warnings.length - 4) + ' till på smhi.se</span></div>';
+    $('rWarn').innerHTML = h || '<div class="fl">✅ Inga varningar för Västra Götaland, Halland eller kustvattnen.</div>';
+    for (i = 0; i < warnings.length; i++) if (warnings[i].here && warnings[i].level !== 'MESSAGE') { banner = warnings[i]; break; }
+    var b = $('warnBanner');
+    if (banner) {
+      b.style.background = WARN_COLOR[banner.level];
+      b.style.color = banner.level === 'RED' ? '#fff' : '#1a140c';
+      b.innerHTML = '⚠️ ' + banner.levelName + ' varning: ' + banner.event + ' – ' + when(banner) + ' ›';
+      b.style.display = 'block';
+    } else b.style.display = 'none';
+  }
+
+  // Byta vy och dag genom att trycka
+  var VIEWS = { weather: 'vWeather', foto: 'vFoto', natt: 'vNatt', radar: 'vRadar' };
+  var startView = VIEWS[param('vy')] ? param('vy') : 'weather', backTimer = null;
+  function showView(v) {
+    curView = v;
+    for (var k in VIEWS) $(VIEWS[k]).style.display = k === v ? '' : 'none';
+    document.body.className = v === 'foto' ? 'foto' : v === 'natt' ? 'foto natt' : v === 'radar' ? 'radar' : '';
+    if (v === 'foto') renderFoto();
+    if (v === 'natt') renderNatt();
+    if (v === 'radar') { loadRadar(); renderSea(); renderWarnings(); radar.idx = 0; animateRadar(); }
+    // Gå tillbaka till startvyn efter 10 min
+    clearTimeout(backTimer);
+    if (v !== startView) backTimer = setTimeout(function () { fDayAuto = true; nDay = 0; showView(startView); }, 600000);
+  }
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    // Klick på text inuti en knapp eller banner räknas som klick på den
+    while (el && el.getAttribute && !el.getAttribute('data-view') && !el.getAttribute('data-day') &&
+           !el.getAttribute('data-nday') && el.parentNode && el.parentNode !== document.body) el = el.parentNode;
+    if (!el || !el.getAttribute) return;
+    if (el.getAttribute('data-view')) showView(el.getAttribute('data-view'));
+    if (el.getAttribute('data-day')) { fDay = +el.getAttribute('data-day'); fDayAuto = false; showView('foto'); }
+    if (el.getAttribute('data-nday')) { nDay = +el.getAttribute('data-nday'); showView('natt'); }
+  });
+
+  // ---- Pollen (Pollenrapporten.se, Naturhistoriska riksmuseet) ----
+  var POLLEN_API = 'https://api.pollenrapporten.se/v1/';
+  var POLLEN_LEVELS = ['Inga', 'Låga', 'Låga–måttliga', 'Måttliga', 'Måttliga–höga',
+                       'Höga', 'Höga–mycket höga', 'Mycket höga'];
+  var POLLEN_COLORS = ['#3fb950', '#3fb950', '#a5d64c', '#d29922', '#e3842b',
+                       '#f0603c', '#f0603c', '#da3633'];
+  var pollenRegion = null, pollenNames = null;
+  var pollenDate = param('pollendatum');   // för test, t.ex. ?pollendatum=2026-05-06
+
+  function getJSON(url, ok, fail) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.timeout = 20000;
+    xhr.onload = function () {
+      if (xhr.status !== 200) return fail();
+      try { ok(JSON.parse(xhr.responseText)); } catch (e) { fail(); }
+    };
+    xhr.onerror = xhr.ontimeout = fail;
+    xhr.send();
+  }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function pollenFail() { $('pollen').innerHTML = '<div class="pollen-text muted">Kunde inte hämta pollenprognosen.</div>'; }
+
+  function loadPollen() {
+    // Första gången: hämta mätstationer och pollensorter, välj närmaste station
+    if (!pollenRegion) {
+      return getJSON(POLLEN_API + 'regions', function (r) {
+        var best = 1e9, cosLat = Math.cos(lat * Math.PI / 180);
+        for (var i = 0; i < r.items.length; i++) {
+          var it = r.items[i];
+          if (!it.latitude) continue;           // hoppa över "Sverige"
+          var dy = it.latitude - lat, dx = (it.longitude - lon) * cosLat, dist = dx * dx + dy * dy;
+          if (dist < best) { best = dist; pollenRegion = it; }
+        }
+        getJSON(POLLEN_API + 'pollen-types', function (t) {
+          pollenNames = {};
+          for (var j = 0; j < t.items.length; j++) pollenNames[t.items[j].id] = t.items[j].name;
+          loadPollen();
+        }, pollenFail);
+      }, pollenFail);
+    }
+    // API:et ger bara prognoser som ligger helt inom intervallet, och de spänner ofta över 2 dagar
+    var next = pollenDate && ymd(new Date(new Date(pollenDate + 'T12:00:00').getTime() + 86400000));
+    var url = POLLEN_API + 'forecasts?region_id=' + pollenRegion.id +
+              (pollenDate ? '&start_date=' + pollenDate + '&end_date=' + next : '&current=true');
+    getJSON(url, renderPollen, pollenFail);
+  }
+
+  function renderPollen(json) {
+    $('pollenTitle').innerHTML = 'Pollen · ' + pollenRegion.name;
+    var f = json.items && json.items[0];
+    if (!f || f.isEndOfSeason || !f.levelSeries || !f.levelSeries.length) {
+      $('pollen').innerHTML = '<div class="pollen-text muted">' +
+        (f && !f.isEndOfSeason && f.text ? f.text : 'Pollensäsongen är slut – nya prognoser kommer i vår.') + '</div>';
+      return;
+    }
+    // Välj dagens nivåer, annars första dagen i prognosen
+    var today = pollenDate || ymd(new Date()), first = f.levelSeries[0].time.substr(0, 10);
+    var day = today, found = false, i;
+    for (i = 0; i < f.levelSeries.length; i++) if (f.levelSeries[i].time.substr(0, 10) === today) { found = true; break; }
+    if (!found) day = first;
+    var list = [];
+    for (i = 0; i < f.levelSeries.length; i++) {
+      var s = f.levelSeries[i];
+      if (s.time.substr(0, 10) === day && s.level > 0) list.push(s);
+    }
+    list.sort(function (a, b) { return b.level - a.level; });
+    if (!list.length) {
+      $('pollen').innerHTML = '<div class="pollen-text muted">Inga pollenhalter väntas i dag.</div>';
+      return;
+    }
+    var h = '';
+    for (i = 0; i < list.length && i < 6; i++) {
+      var lv = Math.min(list[i].level, 7);
+      h += '<div class="chip"><span class="dot" style="background:' + POLLEN_COLORS[lv] + '"></span>' +
+           (pollenNames[list[i].pollenId] || '?') + '<span class="lvl">' + POLLEN_LEVELS[lv] + '</span></div>';
+    }
+    $('pollen').innerHTML = h;
+  }
+
+  $('place').innerHTML = namn;
+  showView(startView);
+  tickClock();
+  setInterval(tickClock, 10000);
+  load();
+  loadPollen();
+  setTimeout(loadPlaces, 5000);
+  loadKp();
+  setInterval(loadKp, 3 * 3600000);
+  loadWarnings();
+  setInterval(loadWarnings, 15 * 60000);
+  loadSea();
+  setInterval(loadSea, 60 * 60000);
+  setInterval(function () { if (curView === 'radar') loadRadar(); }, 5 * 60000);
+  setInterval(load, REFRESH_MIN * 60000);
+  setInterval(loadPlaces, 60 * 60000);
+  setInterval(loadPollen, 3 * 3600000);
+  setTimeout(function () { location.reload(); }, RELOAD_HOURS * 3600000);
+})();
+</script>
+<script>
+// Hemstationen: öppnas sidan från startsidan (?hem=adress) visas en Hem-knapp och efter 10 minuter utan tryck går den tillbaka.
+(function () {
+  var m = /[?&]hem=([^&]*)/.exec(location.search);
+  if (!m) return;
+  var hem = decodeURIComponent(m[1]);
+  if (!/^https?:\/\//.test(hem)) return;
+  var a = document.createElement('a');
+  a.href = hem;
+  a.innerHTML = '&#8962; Hem';
+  a.setAttribute('style', 'position:absolute;top:8px;left:50%;width:96px;margin-left:-48px;z-index:60;' +
+    'height:36px;line-height:36px;border-radius:18px;background:#21262d;color:#e6edf3;text-align:center;' +
+    'font-size:17px;text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.4)');
+  document.body.appendChild(a);
+  // Tillbaka till startsidan efter 10 minuter utan tryck
+  var t;
+  function vanta() { clearTimeout(t); t = setTimeout(function () { location.href = hem; }, 600000); }
+  document.addEventListener('touchstart', vanta, true);
+  document.addEventListener('click', vanta, true);
+  vanta();
+})();
+</script>
+</body>
+</html>

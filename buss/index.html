@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Avgångar">
+<title>Avgångar</title>
+<!--
+  Avgångstavla för gammal iPad mini (iOS 12). Skriven i ES5 utan moderna JS-funktioner.
+  Visar bussar från Nordviksgatan och spårvagnar från Lindholmen i realtid,
+  med data från Västtrafiks API Planera Resa v4 (ext-api.vasttrafik.se).
+  Kräver en gratis nyckel från developer.vasttrafik.se: skapa en applikation,
+  prenumerera på "Planera Resa v4" och klistra in applikationens autentiseringsnyckel
+  i rutan som visas första gången. Nyckeln sparas bara på iPaden (localStorage).
+  Tryck på klockan för att byta nyckel. Hållplatserna ändras i listan TAVLOR längre ner.
+-->
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: #0d1117; color: #e6edf3;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+  }
+  .wrap { box-sizing: border-box; height: 100%; padding: 22px 30px;
+    display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column; }
+  .row { display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+  .grow { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-width: 0; }
+  .muted { color: #8b949e; }
+
+  .clock { font-size: 64px; font-weight: 200; line-height: 1; letter-spacing: -1px; }
+  .date { font-size: 22px; margin-left: 20px; }
+  .updated { font-size: 15px; text-align: right; }
+
+  .boards { margin-top: 18px; -webkit-box-align: stretch; -webkit-align-items: stretch; align-items: stretch; }
+  .board { background: #161b22; border-radius: 16px; padding: 14px 18px 8px; overflow: hidden;
+    -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-width: 0; }
+  .board + .board { margin-left: 18px; }
+  .board h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: #8b949e; }
+  .board h2 b { color: #e6edf3; font-weight: 600; }
+
+  .dep { padding: 9px 0; border-top: 1px solid #21262d; }
+  .dep:first-of-type { border-top: 0; }
+  .badge { min-width: 46px; height: 40px; line-height: 40px; border-radius: 8px; padding: 0 6px;
+    box-sizing: border-box; text-align: center; font-size: 24px; font-weight: 700; margin-right: 14px; }
+  .dest { font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .via { font-size: 15px; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .plat { font-size: 15px; color: #8b949e; width: 36px; text-align: center; }
+  .next { font-size: 28px; font-weight: 500; width: 92px; text-align: right; white-space: nowrap; }
+  .then { font-size: 20px; color: #8b949e; width: 76px; text-align: right; white-space: nowrap; }
+  .soon { color: #3fb950; }
+  .cancel { color: #f85149; text-decoration: line-through; }
+  .plan { font-style: italic; }
+  .empty { font-size: 20px; color: #8b949e; padding: 16px 0; }
+
+  .setup { margin: 40px auto 0; max-width: 640px; background: #161b22; border-radius: 16px;
+    padding: 24px 28px; font-size: 18px; line-height: 1.5; -webkit-user-select: text; }
+  .setup h1 { font-size: 26px; font-weight: 500; margin: 0 0 10px; }
+  .setup input { width: 100%; box-sizing: border-box; font-size: 17px; padding: 10px 12px; margin: 12px 0;
+    border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; -webkit-appearance: none; }
+  .setup button { font-size: 18px; padding: 10px 22px; border-radius: 8px; border: 0;
+    background: #238636; color: #fff; -webkit-appearance: none; }
+  .setup .err { color: #f85149; }
+
+  /* Stående iPad: tavlorna under varandra */
+  @media (orientation: portrait) {
+    .boards { -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column; }
+    .board + .board { margin-left: 0; margin-top: 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row">
+    <div class="clock" id="clock">--:--</div>
+    <div class="date muted grow" id="date"></div>
+    <div class="updated muted" id="updated"></div>
+  </div>
+  <div class="row boards grow" id="boards"></div>
+</div>
+
+<script>
+(function () {
+  // ---- Inställningar ----
+  // gid hittas t.ex. via https://avgangstavla.vasttrafik.se/api/stopAreas?search=Nordviksgatan
+  var TAVLOR = [
+    { namn: 'Nordviksgatan', typ: 'Buss',     gid: '9021014005012000', trafikslag: 'bus' },
+    { namn: 'Lindholmen',    typ: 'Spårvagn', gid: '9021014004490000', trafikslag: 'tram' }
+  ];
+  var API = 'https://ext-api.vasttrafik.se/pr/v4/';
+  var TOKEN_URL = 'https://ext-api.vasttrafik.se/token';
+  var UPPDATERA_MS = 30000;   // hämta nya avgångar
+  var MAX_RADER = 9;          // per tavla
+
+  var DAGAR = ['söndag', 'måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag'];
+  var MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli',
+                 'augusti', 'september', 'oktober', 'november', 'december'];
+
+  var token = null, tokenGaller = 0, tokenKo = null;
+  var data = {};              // gid -> lista med avgångar
+  var senast = null;          // tid för senaste lyckade hämtning
+  var senastFel = null;       // 'natet' om senaste hämtningen misslyckades
+  var timer = null;
+
+  function $(id) { return document.getElementById(id); }
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+
+  function lasNyckel() { try { return localStorage.getItem('vt-nyckel'); } catch (e) { return null; } }
+  function sparaNyckel(v) {
+    try { if (v) localStorage.setItem('vt-nyckel', v); else localStorage.removeItem('vt-nyckel'); } catch (e) {}
+  }
+  var nyckel = lasNyckel();
+
+  // Safari 12 klarar inte Västtrafiks tidsformat (7 decimaler), så tolka det själv.
+  function tolkaTid(s) {
+    var m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|([+-])(\d\d):?(\d\d))?$/.exec(s || '');
+    if (!m) return null;
+    var t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    if (m[8]) t -= (m[8] === '-' ? -1 : 1) * (+m[9] * 60 + +m[10]) * 60000;
+    return new Date(t);
+  }
+
+  // ---- Klocka ----
+  function tickClock() {
+    var d = new Date();
+    $('clock').innerHTML = hhmm(d);
+    $('date').innerHTML = DAGAR[d.getDay()] + ' ' + d.getDate() + ' ' + MANADER[d.getMonth()];
+  }
+
+  // ---- Västtrafik ----
+  function request(method, url, headers, body, ok, fail) {
+    var xhr = new XMLHttpRequest();
+    xhr.open(method, url, true);
+    xhr.timeout = 20000;
+    for (var h in headers) xhr.setRequestHeader(h, headers[h]);
+    xhr.onload = function () {
+      if (xhr.status !== 200) return fail(xhr.status);
+      try { ok(JSON.parse(xhr.responseText)); } catch (e) { fail(0); }
+    };
+    xhr.onerror = xhr.ontimeout = function () { fail(0); };
+    xhr.send(body);
+  }
+
+  // Nyckeln kan klistras in som portalens autentiseringsnyckel (base64) eller som nyckel:hemlighet.
+  function basic() {
+    var k = nyckel.replace(/\s+/g, '');
+    if (k.indexOf(':') > 0) k = btoa(k);
+    return 'Basic ' + k;
+  }
+
+  function hamtaToken(ok, fail) {
+    if (token && Date.now() < tokenGaller) return ok();
+    if (tokenKo) return tokenKo.push([ok, fail]);
+    tokenKo = [[ok, fail]];
+    function klar(i, arg) {
+      var ko = tokenKo; tokenKo = null;
+      for (var j = 0; j < ko.length; j++) ko[j][i](arg);
+    }
+    request('POST', TOKEN_URL,
+      { 'Authorization': basic(), 'Content-Type': 'application/x-www-form-urlencoded' },
+      'grant_type=client_credentials',
+      function (r) {
+        token = r.access_token;
+        tokenGaller = Date.now() + Math.max(60, (r.expires_in || 3600) - 120) * 1000;
+        klar(0);
+      },
+      function (status) { token = null; klar(1, status === 400 || status === 401 ? 'nyckel' : 'natet'); });
+  }
+
+  function hamtaTavla(t, ok, fail) {
+    hamtaToken(function () {
+      var url = API + 'stop-areas/' + t.gid + '/departures?timeSpanInMinutes=90&maxDeparturesPerLineAndDirection=2&limit=60';
+      request('GET', url, { 'Authorization': 'Bearer ' + token }, null,
+        function (r) { ok(r.results || []); },
+        function (status) {
+          if (status === 401) token = null;   // utgånget token, nytt hämtas nästa gång
+          fail('natet');
+        });
+    }, fail);
+  }
+
+  function uppdatera() {
+    var kvar = TAVLOR.length, fel = null;
+    function klar() {
+      if (--kvar > 0) return;
+      if (fel === 'nyckel') return visaInstallning('Västtrafik godkände inte nyckeln. Kontrollera att applikationen prenumererar på Planera Resa v4.');
+      senastFel = fel;
+      if (!fel) senast = new Date();
+      rita();
+    }
+    for (var i = 0; i < TAVLOR.length; i++) (function (t) {
+      hamtaTavla(t, function (res) { data[t.gid] = res; klar(); },
+                    function (orsak) { fel = fel === 'nyckel' ? fel : orsak; klar(); });
+    })(TAVLOR[i]);
+  }
+
+  // ---- Rita ----
+  // Slå ihop avgångar per linje och riktning: nästa + därefter
+  function gruppera(list, trafikslag) {
+    var grupper = {}, ordning = [];
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i], sj = a.serviceJourney || {}, line = sj.line || {};
+      if (trafikslag && line.transportMode !== trafikslag) continue;
+      var tid = tolkaTid(a.estimatedOtherwisePlannedTime || a.estimatedTime || a.plannedTime);
+      if (!tid) continue;
+      var nyckelG = (line.shortName || line.name) + '|' + sj.direction;
+      var avg = { tid: tid, realtid: !!a.estimatedTime, installd: !!a.isCancelled };
+      if (!grupper[nyckelG]) {
+        grupper[nyckelG] = { line: line, riktning: sj.direction, details: sj.directionDetails || {},
+                             lage: (a.stopPoint || {}).platform, avg: [] };
+        ordning.push(grupper[nyckelG]);
+      }
+      grupper[nyckelG].avg.push(avg);
+    }
+    for (i = 0; i < ordning.length; i++) ordning[i].avg.sort(function (x, y) { return x.tid - y.tid; });
+    ordning.sort(function (x, y) { return x.avg[0].tid - y.avg[0].tid; });
+    return ordning;
+  }
+
+  function tidText(a, nu) {
+    var min = Math.floor((a.tid - nu) / 60000);
+    var txt = min <= 0 ? 'Nu' : min < 60 ? min + ' min' : hhmm(a.tid);
+    var cls = a.installd ? 'cancel' : (min <= 2 ? 'soon' : '') + (a.realtid ? '' : ' plan');
+    return '<span class="' + cls + '">' + txt + '</span>';
+  }
+
+  // "Bäckebol via Lindholmen" -> destination + via-rad
+  function destination(g) {
+    var d = g.details, namn = d.shortDirection || g.riktning || '', via = d.via || '';
+    if (!d.shortDirection && namn.indexOf(' via ') > 0) {
+      via = namn.substring(namn.indexOf(' via ') + 5);
+      namn = namn.substring(0, namn.indexOf(' via '));
+    }
+    return { namn: namn, via: via };
+  }
+
+  function rita() {
+    var nu = new Date(), html = '', fel = senastFel;
+    for (var i = 0; i < TAVLOR.length; i++) {
+      var t = TAVLOR[i], list = data[t.gid];
+      html += '<div class="board"><h2>' + esc(t.typ) + ' · <b>' + esc(t.namn) + '</b></h2>';
+      if (!list) {
+        html += '<div class="empty">' + (fel ? 'Kunde inte hämta avgångar.' : 'Hämtar…') + '</div>';
+      } else {
+        // Dölj avgångar som redan gått
+        var g = gruppera(list, t.trafikslag), rader = 0;
+        for (var j = 0; j < g.length && rader < MAX_RADER; j++) {
+          var avg = [];
+          for (var k = 0; k < g[j].avg.length; k++) if (g[j].avg[k].tid - nu > -60000) avg.push(g[j].avg[k]);
+          if (!avg.length) continue;
+          var line = g[j].line, d = destination(g[j]);
+          html += '<div class="row dep">' +
+            '<div class="badge" style="background:' + esc(line.backgroundColor || '#30363d') +
+              ';color:' + esc(line.foregroundColor || '#fff') + '">' + esc(line.shortName || line.name) + '</div>' +
+            '<div class="grow"><div class="dest">' + esc(d.namn) + '</div>' +
+              (d.via ? '<div class="via">via ' + esc(d.via) + '</div>' : '') + '</div>' +
+            '<div class="plat">' + esc(g[j].lage || '') + '</div>' +
+            '<div class="next">' + tidText(avg[0], nu) + '</div>' +
+            '<div class="then">' + (avg[1] ? tidText(avg[1], nu) : '') + '</div>' +
+          '</div>';
+          rader++;
+        }
+        if (!rader) html += '<div class="empty">Inga avgångar den närmaste timmen.</div>';
+      }
+      html += '</div>';
+    }
+    $('boards').innerHTML = html;
+    $('updated').innerHTML = senast
+      ? (fel ? '<span class="cancel" style="text-decoration:none">Ingen kontakt</span> · ' : '') + 'Uppdaterad ' + hhmm(senast)
+      : '';
+  }
+
+  // ---- Nyckel ----
+  function visaInstallning(felText) {
+    if (timer) { clearInterval(timer); timer = null; }
+    $('boards').innerHTML =
+      '<div class="setup"><h1>Västtrafik-nyckel</h1>' +
+      (felText ? '<p class="err">' + esc(felText) + '</p>' : '') +
+      '<p>Skapa ett gratis konto på <b>developer.vasttrafik.se</b>, lägg till en applikation och prenumerera på ' +
+      '<b>Planera Resa v4</b>. Klistra sedan in applikationens <b>autentiseringsnyckel</b> här. ' +
+      'Den sparas bara på den här iPaden.</p>' +
+      '<input id="nyckel" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Autentiseringsnyckel">' +
+      '<button id="spara">Spara</button></div>';
+    $('nyckel').value = nyckel || '';
+    $('spara').onclick = function () {
+      nyckel = $('nyckel').value.replace(/\s+/g, '');
+      token = null;
+      sparaNyckel(nyckel);
+      if (nyckel) starta();
+    };
+  }
+
+  function starta() {
+    rita();
+    uppdatera();
+    if (timer) clearInterval(timer);
+    timer = setInterval(uppdatera, UPPDATERA_MS);
+  }
+
+  $('clock').onclick = function () { visaInstallning(); };
+
+  tickClock();
+  setInterval(function () { tickClock(); if (timer && senast) rita(); }, 15000);
+  if (nyckel) starta(); else visaInstallning();
+})();
+</script>
+<script>
+// Hemstationen: öppnas sidan från startsidan (?hem=adress) visas en Hem-knapp och efter 10 minuter utan tryck går den tillbaka.
+(function () {
+  var m = /[?&]hem=([^&]*)/.exec(location.search);
+  if (!m) return;
+  var hem = decodeURIComponent(m[1]);
+  if (!/^https?:\/\//.test(hem)) return;
+  var a = document.createElement('a');
+  a.href = hem;
+  a.innerHTML = '&#8962; Hem';
+  a.setAttribute('style', 'position:absolute;top:8px;left:50%;width:96px;margin-left:-48px;z-index:60;' +
+    'height:36px;line-height:36px;border-radius:18px;background:#21262d;color:#e6edf3;text-align:center;' +
+    'font-size:17px;text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.4)');
+  document.body.appendChild(a);
+  // Tillbaka till startsidan efter 10 minuter utan tryck
+  var t;
+  function vanta() { clearTimeout(t); t = setTimeout(function () { location.href = hem; }, 600000); }
+  document.addEventListener('touchstart', vanta, true);
+  document.addEventListener('click', vanta, true);
+  vanta();
+})();
+</script>
+</body>
+</html>
