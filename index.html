@@ -21,6 +21,8 @@
   repon under samma konto adress (namn.github.io), så det går bra med ett repo per sida.
   Musikrutan visar vad som spelas på Macen som en bild från musikserver.py (/api/nu.svg),
   eftersom en https-sida bara får hämta bilder, inte data, från Macen.
+  Evenemangsraden under rutnätet fungerar likadant med Evenemangsspanarens /api/hemstation.svg
+  (port 8830): närmaste biljettsläpp och de närmaste konserterna med artister du följer.
 -->
 <style>
   html, body { margin: 0; padding: 0; height: 100%; }
@@ -128,6 +130,12 @@
   .kd .dot { margin-right: 10px; }
   .ute { color: #6e7681; }
 
+  /* Evenemang: smal rad under rutnätet, en bild från Evenemangsspanaren på Macen */
+  .strip { margin-top: 16px; padding: 12px 44px 10px 20px; -webkit-flex-shrink: 0; flex-shrink: 0; }
+  .ev-bild img { display: block; width: 100%; max-width: 1000px; height: auto; margin-top: 6px; }
+  .strip .tom { margin-top: 6px; font-size: 17px; }
+  .strip .pil { top: 50%; bottom: auto; margin-top: -14px; }
+
   /* Nattläge: svart skärm med klocka och morgondagens väder */
   #natt { display: none; position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10;
     background: #000; color: #8b949e; text-align: center; cursor: pointer; }
@@ -162,6 +170,7 @@
     <div class="w grow col" data-app="buss" id="w-buss"><h2>Avgångar</h2><div class="tom">Hämtar…</div></div>
     <div class="w grow col" data-app="mat" id="w-mat"><h2>Matsedel</h2><div class="tom">Hämtar…</div></div>
   </div>
+  <div class="w strip" data-app="evenemang" id="w-evenemang"><h2>Evenemang</h2><div class="tom">Letar efter Macen…</div></div>
 </div>
 <div id="natt"><div class="nk" id="n-klocka"></div><div class="nd" id="n-datum"></div>
   <div class="nv" id="n-vader"></div><div class="nh">Tryck för att visa allt</div></div>
@@ -175,7 +184,9 @@
     vader: 'vader/index.html',
     musik: 'musik/index.html',
     buss:  'buss/index.html',
-    mat:   'matsedel/index.html'
+    mat:   'matsedel/index.html',
+    // Evenemangsspanaren körs på Macen (Docker); sidorna har en Hem-knapp när ?hem= finns
+    evenemang: 'http://MacBook-Pro-som-tillhor-Helena.local:8830/'
   };
   var PLATS = { lat: 57.71, lon: 11.97, namn: 'Göteborg' };   // samma som Väderstationen
   var NATT = { fran: 22, till: 6 };   // nattläge mellan dessa klockslag
@@ -651,6 +662,35 @@
     setTimeout(laddaMusik, 700);
   }
 
+  // ================= Evenemang (Macen) =================
+  // Bilden /api/hemstation.svg visar närmaste biljettsläpp och de närmaste konserterna med
+  // artister du följer. Samma knep som musikrutan: en https-sida får hämta bilder från Macen.
+  var evenemang = { pa: null, timer: null };
+  function laddaEvenemang() {
+    clearTimeout(evenemang.timer);
+    var img = new Image(), klar = false;
+    img.alt = '';
+    img.onload = function () {
+      if (klar) return;
+      klar = true;
+      evenemang.pa = true;
+      ruta('w-evenemang', 'Evenemang', '', '<div class="ev-bild" id="ev-bild"></div><div class="pil">›</div>');
+      $('ev-bild').appendChild(img);
+      evenemang.timer = setTimeout(laddaEvenemang, 10 * 60000);
+    };
+    img.onerror = function () {
+      if (klar) return;
+      klar = true;
+      if (evenemang.pa !== false) {
+        evenemang.pa = false;
+        ruta('w-evenemang', 'Evenemang', '', '<div class="tom">Evenemangsspanaren svarar inte – är Macen igång?</div>');
+      }
+      evenemang.timer = setTimeout(laddaEvenemang, 60000);
+    };
+    setTimeout(function () { if (!klar) img.onerror(); }, 8000);
+    img.src = APPAR.evenemang + 'api/hemstation.svg?t=' + new Date().getTime();
+  }
+
   // ================= Matsedel =================
   // Matsedeln sparar en översikt per vecka ('matsedel-oversikt:ÅÅÅÅ-vNN'). Saknas den laddas
   // matsedeln en gång i en dold ram, så att veckans förslag skapas och sparas.
@@ -738,6 +778,7 @@
   laddaPollen();  setInterval(laddaPollen, 3 * 3600000);
   laddaBuss();    setInterval(laddaBuss, 30000);
   laddaMusik();
+  laddaEvenemang();
   setInterval(ritaMat, 60000);
   setTimeout(function () { location.reload(); }, 6 * 3600000);   // håller gamla Safari pigg
 })();
