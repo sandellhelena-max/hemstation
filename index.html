@@ -22,7 +22,7 @@
   Musikrutan visar vad som spelas på Macen som en bild från musikserver.py (/api/nu.svg),
   eftersom en https-sida bara får hämta bilder, inte data, från Macen.
   Evenemangsraden under rutnätet fungerar likadant med Evenemangsspanarens /api/hemstation.svg
-  (port 8830): närmaste biljettsläpp och de närmaste konserterna med artister du följer.
+  (port 80): närmaste biljettsläpp och de närmaste konserterna med artister du följer.
 -->
 <style>
   html, body { margin: 0; padding: 0; height: 100%; }
@@ -186,7 +186,7 @@
     buss:  'buss/index.html',
     mat:   'matsedel/index.html',
     // Evenemangsspanaren körs på Macen (Docker); sidorna har en Hem-knapp när ?hem= finns
-    evenemang: 'http://MacBook-Pro-som-tillhor-Helena.local:8830/'
+    evenemang: 'http://MacBook-Pro-som-tillhor-Helena.local/'
   };
   var PLATS = { lat: 57.71, lon: 11.97, namn: 'Göteborg' };   // samma som Väderstationen
   var NATT = { fran: 22, till: 6 };   // nattläge mellan dessa klockslag
